@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"log"
 	"math/rand"
 	"net/http"
@@ -19,52 +21,128 @@ func NewPlayerHandler(db *sql.DB) *PlayerHandler {
 	return &PlayerHandler{db: db}
 }
 
+type ShipResponse struct {
+	ID        string          `json:"id"`
+	Loadout   json.RawMessage `json:"loadout"`
+	State     json.RawMessage `json:"state"`
+	Transform json.RawMessage `json:"transform"`
+	Status    string          `json:"status"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
 type PlayerResponse struct {
-	ID   string `json:"id"`
-	Seed int32  `json:"seed"`
+	ID   string        `json:"id"`
+	Seed int32         `json:"seed"`
+	Ship *ShipResponse `json:"ship,omitempty"`
 }
 
 func (h *PlayerHandler) GetPlayer(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	playerID := r.URL.Query().Get("id")
 
-	var seed int32
+	tx, err := h.db.BeginTx(ctx, nil)
+	if err != nil {
+		log.Printf("begin tx: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
+	var (
+		seed         int32
+		activeShipID sql.NullString
+	)
 
 	if playerID != "" {
-		// Returning player — update last_seen_at and return their seed
-		err := h.db.QueryRowContext(r.Context(),
-			`UPDATE players SET last_seen_at = NOW() WHERE id = $1 RETURNING seed`,
+		err := tx.QueryRowContext(ctx,
+			`UPDATE players SET last_seen_at = NOW()
+			 WHERE id = $1
+			 RETURNING seed, active_ship_id`,
 			playerID,
-		).Scan(&seed)
+		).Scan(&seed, &activeShipID)
 
-		if err == nil {
-			// Found — return existing player
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(PlayerResponse{ID: playerID, Seed: seed})
-			return
-		}
-		if err != sql.ErrNoRows {
-			log.Printf("error looking up player %s: %v", playerID, err)
+		if errors.Is(err, sql.ErrNoRows) {
+			// Stale id from a wiped DB — fall through to create new
+			playerID = ""
+		} else if err != nil {
+			log.Printf("lookup player %s: %v", playerID, err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		// Player ID not found — fall through to create new
 	}
 
-	// New player
-	newID := uuid.New().String()
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	seed = rng.Int31()
+	if playerID == "" {
+		playerID = uuid.New().String()
+		seed = rand.New(rand.NewSource(time.Now().UnixNano())).Int31()
 
-	_, err := h.db.ExecContext(r.Context(),
-		`INSERT INTO players (id, seed) VALUES ($1, $2)`,
-		newID, seed,
-	)
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO players (id, seed) VALUES ($1, $2)`,
+			playerID, seed,
+		); err != nil {
+			log.Printf("insert player: %v", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if !activeShipID.Valid {
+		newShipID, err := createShipForPlayer(ctx, tx, playerID)
+		if err != nil {
+			log.Printf("create ship for %s: %v", playerID, err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		activeShipID = sql.NullString{String: newShipID, Valid: true}
+	}
+
+	ship, err := loadShip(ctx, tx, activeShipID.String)
 	if err != nil {
-		log.Printf("error creating player: %v", err)
+		log.Printf("load ship %s: %v", activeShipID.String, err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("commit: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(PlayerResponse{ID: newID, Seed: seed})
+	json.NewEncoder(w).Encode(PlayerResponse{
+		ID:   playerID,
+		Seed: seed,
+		Ship: ship,
+	})
+}
+
+func createShipForPlayer(ctx context.Context, tx *sql.Tx, playerID string) (string, error) {
+	shipID := uuid.New().String()
+
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO ships (id, player_id) VALUES ($1, $2)`,
+		shipID, playerID,
+	); err != nil {
+		return "", err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE players SET active_ship_id = $1 WHERE id = $2`,
+		shipID, playerID,
+	); err != nil {
+		return "", err
+	}
+	return shipID, nil
+}
+
+func loadShip(ctx context.Context, tx *sql.Tx, shipID string) (*ShipResponse, error) {
+	var s ShipResponse
+	err := tx.QueryRowContext(ctx,
+		`SELECT id, loadout, state, transform, status, created_at
+		 FROM ships WHERE id = $1`,
+		shipID,
+	).Scan(&s.ID, &s.Loadout, &s.State, &s.Transform, &s.Status, &s.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
 }
