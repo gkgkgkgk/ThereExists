@@ -1,0 +1,55 @@
+{
+    "flight_systems": [
+        {
+            "system_type": "FLIGHT_PROPULSION",
+            "category": "LIQUID_CHEMICAL",
+            "description": "High-thrust, fuel-intensive thermal expansion engine.",
+            "archetype_attributes": {
+                "thrust_efficiency_curve": "linear",
+                "propellant_types": [
+                    "monopropellant",
+                    "bipropellant",
+                    "tripropellant_sequential",
+                    "tripropellant_simultaneous"
+                ],
+                "ignition_method": [
+                    "spark",
+                    "chemical",
+                    "hypergolic"
+                ],
+                "minimum_stable_throttle": [
+                    0,
+                    1
+                ],
+                "can_throttle": [
+                    true,
+                    false
+                ],
+                "restartable": [
+                    true,
+                    false
+                ]
+            },
+            "generation_bounds": {
+                "dry_mass": [
+                    1,
+                    10000
+                ],
+                "hardware_efficiency_factor": [
+                    0,
+                    1
+                ],
+                "thermal_load_factor": [
+                    0,
+                    1
+                ]
+            },
+            "mechanics": {
+                "burn_rate_formula": "",
+                "heat_generation_formula": "",
+                "degradation_rate": "",
+                "effective_thrust": ""
+            }
+        }
+    ]
+}
