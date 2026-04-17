@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { createCameraSystem } from './camera.js'
 
 // ── Seeded PRNG (Mulberry32) ──────────────────────────────────────────────────
 function makePRNG(seed) {
@@ -133,18 +133,9 @@ export function createScene(canvas, seed, { onOrbitUpdate } = {}) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.toneMappingExposure = 1.1
 
-  // Scene + camera
+  // Scene
   const scene = new THREE.Scene()
   scene.background = new THREE.Color(0x020209)
-
-  const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.01, 1000)
-  camera.position.set(9, 4, 9)
-
-  const controls = new OrbitControls(camera, renderer.domElement)
-  controls.enableDamping = true
-  controls.dampingFactor = 0.06
-  controls.minDistance = 4
-  controls.maxDistance = 40
 
   // Lighting
   scene.add(new THREE.AmbientLight(0x0a0a1a, 1.0))
@@ -218,6 +209,9 @@ export function createScene(canvas, seed, { onOrbitUpdate } = {}) {
   const ship = buildSpacecraft(rng)
   scene.add(ship)
 
+  // ── Camera system (orbit / cockpit / panel) ──
+  const cameraSystem = createCameraSystem(renderer, ship)
+
   // ── Orbit parameters (deterministic from seed) ──
   const orbitRadius   = 3.5 + rng() * 2.0          // 3.5 – 5.5 units
   const inclination   = (rng() - 0.5) * 0.9        // tilt
@@ -252,16 +246,14 @@ export function createScene(canvas, seed, { onOrbitUpdate } = {}) {
 
     planet.rotation.y += 0.0003
 
-    controls.update()
-    renderer.render(scene, camera)
+    cameraSystem.update()
+    renderer.render(scene, cameraSystem.camera)
   }
 
   animate()
 
-  // Resize
+  // Resize (camera system handles its own aspect/projection update)
   window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight
-    camera.updateProjectionMatrix()
     renderer.setSize(window.innerWidth, window.innerHeight)
   })
 }
