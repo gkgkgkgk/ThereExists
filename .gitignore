@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+client/dist/
+server/main
+server/thereexists
+
+# Environment files (never commit secrets)
+.env
+.env.local
+client/.env.local
+
+# Go
+*.exe
+*.test
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/

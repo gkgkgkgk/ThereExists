@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>∃ There Exists</title>
+    <meta name="description" content="A persistent, real-time engineering simulation set in a mathematically vast, sparse galaxy." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+
+    <div id="loading">
+      <div class="loading-inner">
+        <div class="loading-symbol">∃</div>
+        <div class="loading-text">INITIALIZING SYSTEMS<span class="dots"></span></div>
+      </div>
+    </div>
+
+    <div id="hud">
+      <div class="hud-corner top-left">
+        <div class="hud-label">SYSTEM</div>
+        <div class="hud-value" id="hud-system">—</div>
+      </div>
+      <div class="hud-corner top-right">
+        <div class="hud-label">PLAYER ID</div>
+        <div class="hud-value" id="hud-player-id">—</div>
+      </div>
+      <div class="hud-corner bottom-left">
+        <div class="hud-label">ORBIT</div>
+        <div class="hud-value" id="hud-orbit">—</div>
+      </div>
+      <div class="hud-corner bottom-right">
+        <div class="hud-label">STATUS</div>
+        <div class="hud-value" id="hud-status">NOMINAL</div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

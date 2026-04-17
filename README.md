@@ -1,1 +1,3 @@
-# ThereExists
+# ∃ There Exists
+
+A persistent, real-time engineering simulation set in a procedurally generated, mathematically vast galaxy — built for the browser using Three.js, Go, and PostgreSQL. Players pilot a unique spacecraft through an indifferent universe, managing flight mechanics, power budgets, thermal systems, sensors, and deployable probes in a "check-in" gameplay loop where time and distance are real. The shared universe is populated by other players, yet so sparse that encountering them live is a statistical miracle — the only evidence of others is the beacons, wreckage, and named phenomena they leave behind. ∃ aims to teach orbital dynamics, signal propagation, and resource scarcity not through lectures, but through the quiet necessity of survival.
