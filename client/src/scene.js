@@ -210,7 +210,7 @@ export function createScene(canvas, seed, { onOrbitUpdate } = {}) {
   scene.add(ship)
 
   // ── Camera system (orbit / cockpit / panel) ──
-  const cameraSystem = createCameraSystem(renderer, ship)
+  const cameraSystem = createCameraSystem(renderer, ship, scene)
 
   // ── Orbit parameters (deterministic from seed) ──
   const orbitRadius   = 3.5 + rng() * 2.0          // 3.5 – 5.5 units

@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
 
 // Views in order — matches keys 1/2/3 and V-cycle
 export const VIEW = {
@@ -10,7 +11,15 @@ export const VIEW = {
 
 const VIEW_NAMES = ['ORBIT', 'COCKPIT', 'PANEL']
 
-export function createCameraSystem(renderer, ship) {
+const COCKPIT_URL = '/cockpit.fbx'
+const LOOK_SENSITIVITY = 0.0025
+const PITCH_LIMIT = Math.PI / 2 - 0.01
+// Target max bounding-box dimension for the cockpit, in world units.
+// Ship hull is ~0.3 units long; a cockpit the player sits inside should
+// be a bit bigger than that. Tweak freely.
+const COCKPIT_TARGET_SIZE = 0.5
+
+export function createCameraSystem(renderer, ship, scene) {
   // ── Shared camera ─────────────────────────────────────────────────────────
   const camera = new THREE.PerspectiveCamera(
     55,
@@ -27,6 +36,16 @@ export function createCameraSystem(renderer, ship) {
   orbitControls.maxDistance = 40
   orbitControls.enablePan = false
 
+  // ── Cockpit look-around state ─────────────────────────────────────────────
+  let cockpitModel = null
+  let cockpitLoading = false
+  const look = { yaw: 0, pitch: 0, dragging: false, lastX: 0, lastY: 0 }
+  const _lookEuler = new THREE.Euler(0, 0, 0, 'YXZ')
+
+  // Snapshot the external ship parts so we can hide/show only those
+  // (cockpit will be added as a sibling child of the ship group).
+  const externalShipParts = [...ship.children]
+
   // Start in orbit view, positioned relative to ship
   let currentView = VIEW.ORBIT
   const _prevShipPos = new THREE.Vector3()
@@ -36,6 +55,32 @@ export function createCameraSystem(renderer, ship) {
   // ── HUD label ─────────────────────────────────────────────────────────────
   const hudView = document.getElementById('hud-view')
   _updateHUD(hudView, currentView)
+
+  // ── Pointer look (active only in cockpit) ─────────────────────────────────
+  const dom = renderer.domElement
+  dom.addEventListener('pointerdown', (e) => {
+    if (currentView !== VIEW.COCKPIT) return
+    look.dragging = true
+    look.lastX = e.clientX
+    look.lastY = e.clientY
+    dom.setPointerCapture?.(e.pointerId)
+  })
+  dom.addEventListener('pointermove', (e) => {
+    if (!look.dragging || currentView !== VIEW.COCKPIT) return
+    const dx = e.clientX - look.lastX
+    const dy = e.clientY - look.lastY
+    look.lastX = e.clientX
+    look.lastY = e.clientY
+    look.yaw   -= dx * LOOK_SENSITIVITY
+    look.pitch -= dy * LOOK_SENSITIVITY
+    look.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, look.pitch))
+  })
+  const endDrag = (e) => {
+    look.dragging = false
+    if (e.pointerId !== undefined) dom.releasePointerCapture?.(e.pointerId)
+  }
+  dom.addEventListener('pointerup', endDrag)
+  dom.addEventListener('pointercancel', endDrag)
 
   // ── Keyboard switching ────────────────────────────────────────────────────
   window.addEventListener('keydown', (e) => {
@@ -49,9 +94,82 @@ export function createCameraSystem(renderer, ship) {
     else return
 
     if (next === currentView) return
-    _switchTo(next, camera, orbitControls, ship, hudView, _prevShipPos)
+    _switchTo(next)
     currentView = next
   })
+
+  function _switchTo(view) {
+    _updateHUD(hudView, view)
+
+    if (view === VIEW.ORBIT) {
+      orbitControls.enabled = true
+      _showExternalShip(true)
+      if (cockpitModel) cockpitModel.visible = false
+      scene.add(camera) // reparent camera back to world
+      _enterOrbit(camera, orbitControls, ship, _prevShipPos)
+      return
+    }
+
+    orbitControls.enabled = false
+
+    if (view === VIEW.COCKPIT) {
+      _showExternalShip(false)
+      _ensureCockpitLoaded()
+      if (cockpitModel) cockpitModel.visible = true
+      // Parent the camera to the ship so it inherits orbit + heading;
+      // local (0,0,0) = ship's origin = cockpit's origin.
+      ship.add(camera)
+      camera.position.set(0, 0, 0)
+      look.yaw = 0
+      look.pitch = 0
+      _applyLookRotation()
+    } else if (view === VIEW.PANEL) {
+      _showExternalShip(true)
+      if (cockpitModel) cockpitModel.visible = false
+      scene.add(camera)
+      console.log('[camera] Control panel view — coming soon')
+    }
+  }
+
+  function _showExternalShip(visible) {
+    for (const part of externalShipParts) part.visible = visible
+  }
+
+  function _ensureCockpitLoaded() {
+    if (cockpitModel || cockpitLoading) return
+    cockpitLoading = true
+    new FBXLoader().load(
+      COCKPIT_URL,
+      (obj) => {
+        cockpitModel = obj
+        // Auto-fit to ship scale (FBX often exports at 100× — Blender cm).
+        const bbox = new THREE.Box3().setFromObject(cockpitModel)
+        const size = new THREE.Vector3()
+        bbox.getSize(size)
+        const maxDim = Math.max(size.x, size.y, size.z) || 1
+        const s = COCKPIT_TARGET_SIZE / maxDim
+        cockpitModel.scale.setScalar(s)
+        // Re-centre so the model's geometric centre sits at ship origin
+        const centre = new THREE.Vector3()
+        bbox.getCenter(centre)
+        cockpitModel.position.copy(centre.multiplyScalar(-s))
+        cockpitModel.visible = currentView === VIEW.COCKPIT
+        // Child of ship → inherits orbit position + heading
+        ship.add(cockpitModel)
+        cockpitLoading = false
+      },
+      undefined,
+      (err) => {
+        console.error('[camera] Failed to load cockpit.fbx', err)
+        cockpitLoading = false
+      },
+    )
+  }
+
+  function _applyLookRotation() {
+    _lookEuler.set(look.pitch, look.yaw, 0, 'YXZ')
+    camera.quaternion.setFromEuler(_lookEuler)
+  }
 
   // ── Per-frame update ──────────────────────────────────────────────────────
   function update() {
@@ -63,8 +181,9 @@ export function createCameraSystem(renderer, ship) {
       orbitControls.target.add(_shipDelta)
       _prevShipPos.copy(ship.position)
       orbitControls.update()
+    } else if (currentView === VIEW.COCKPIT) {
+      _applyLookRotation()
     }
-    // Cockpit / Panel: handled when those views are implemented (Phase 2)
   }
 
   // ── Resize ────────────────────────────────────────────────────────────────
@@ -87,27 +206,6 @@ function _enterOrbit(camera, controls, ship, prevShipPos) {
   controls.enabled = true
   controls.update()
   prevShipPos.copy(ship.position)
-}
-
-function _switchTo(view, camera, orbitControls, ship, hudEl, prevShipPos) {
-  _updateHUD(hudEl, view)
-
-  if (view === VIEW.ORBIT) {
-    orbitControls.enabled = true
-    _enterOrbit(camera, orbitControls, ship, prevShipPos)
-    return
-  }
-
-  // Disable orbit mouse control for non-orbit views
-  orbitControls.enabled = false
-
-  if (view === VIEW.COCKPIT) {
-    // Stub — camera will be parented to ship in a later step
-    console.log('[camera] Cockpit view — coming soon')
-  } else if (view === VIEW.PANEL) {
-    // Stub — instrument panel overlay in Phase 2
-    console.log('[camera] Control panel view — coming soon')
-  }
 }
 
 function _updateHUD(el, view) {
