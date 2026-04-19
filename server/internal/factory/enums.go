@@ -2,6 +2,17 @@ package factory
 
 import "fmt"
 
+// Enums shared across multiple system categories live here. Category-local
+// enums (e.g. FlightSlot) live alongside the category itself.
+//
+// Current residents are all flight-engine configuration enums, but they're
+// referenced by TechProfile in civilizations.go — so they must sit above
+// any category subpackage to keep the factory import graph acyclic. When
+// a non-flight category arrives, group its enums in a new section below.
+
+// ───────────────────────── Flight / propulsion ─────────────────────────
+
+// PropellantConfig describes how many propellant streams an engine burns.
 type PropellantConfig int
 
 const (
@@ -21,6 +32,9 @@ func (p PropellantConfig) String() string {
 
 func (p PropellantConfig) MarshalText() ([]byte, error) { return []byte(p.String()), nil }
 
+// IgnitionMethod describes how an engine lights its propellant mixture.
+// Derived from the rolled mixture's flags at generation time (Plan §2
+// Group 7) — never declared independently on an archetype.
 type IgnitionMethod int
 
 const (
@@ -46,6 +60,10 @@ func (i IgnitionMethod) String() string {
 
 func (i IgnitionMethod) MarshalText() ([]byte, error) { return []byte(i.String()), nil }
 
+// CoolingMethod describes how an engine rejects chamber heat. Each method
+// has real teeth (Plan §2 "Cooling methods — each has real teeth"):
+// Ablative depletes mass; Radiative caps throttle; Film penalises Isp;
+// Regenerative is near-free but fails catastrophically out of envelope.
 type CoolingMethod int
 
 const (
