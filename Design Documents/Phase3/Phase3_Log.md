@@ -38,3 +38,29 @@ One divergence from the Impl doc worth flagging: the Impl doc implies `flight.Ge
 
 `register()` in flight.go is unused until commit 6 registers `RCSLiquidChemical`. Build passes; the lint warning is expected.
 
+### Commit `b5fccf5` — `factory: populate civilization, manufacturer, mixture registries`
+Impl commit 4. `GenericCivilization` (Tier 3, neutral `TechProfile`). Three placeholder manufacturers — Kirov Rocketworks, Helios Propulsion, Triton Dynamics — all pointing at the generic civ. Each has a `NamingConvention` that produces serials like `KR-RCS-LC-3987`. Mixture table: `LOX_LH2`, `LOX_RP1` (cryogenic bipropellants), `MMH_NTO` (hypergolic bipropellant), `Hydrazine` (monopropellant). IDs frozen — `RCSLiquidChemical` references `MMH_NTO` and `Hydrazine` by name.
+
+Exported `factory.PickManufacturer` (weighted by `ArchetypeWeights`, uniform default). Originally planned to wire it into `flight.SetManufacturerPicker` from factory's `init()`, but that creates a `factory → flight → factory` import cycle (flight imports factory for `Mixtures`/`CoolingMethod`). Moved the wiring to `main.go` — factory stays leaf of the factory → flight edge.
+
+### Commit `9eca35a` — `factory: LiquidChemicalArchetype, engine struct, Validate, RCSLiquidChemical`
+Bundled Impl commits 5 + 6 (too small to split).
+- `LiquidChemicalArchetype` and `LiquidChemicalEngine` structs (field order matches the DAG groups).
+- `HasRestartsRemaining()` method centralises the `MaxRestarts == -1` sentinel.
+- `Validate()` runs on every registered archetype at `init()`. Checks only what the DAG cannot structurally guarantee: range monotonicity, gimbal-gating reachability, non-empty mixture/cooling lists, every `AllowedMixtureIDs` entry exists in `factory.Mixtures`, `HealthInitRange` ⊂ [0, 1], `ReferencePressurePa > 0`.
+- `RCSLiquidChemical` values copied from Plan §2 "Example archetype (v1)", registered via `registerLiquidArchetype`.
+- Generator is a named placeholder (`makeLiquidGenerator` var, returns `not implemented` error) so this commit compiles. Commit 7 reassigns it.
+
+### Commit (next) — `factory: liquid chemical DAG generator`
+Impl commit 7 landed. Files:
+- `sampling.go` (`LogUniform`, `Uniform`, `Clamp01`) in the factory root so any future category can share it.
+- `gencontext.go` (`GenContext { ManufacturerID, Rng }`).
+- `flight/liquid_generator.go` — the 9-group DAG, plus `IspAt`, `HeatToHullW` (returns 0.0 — Phase 4), `Tick` (panics — Phase 4), and the small helpers (`filterCoolingByPressure`, `deriveIgnition`, `rollHealth`).
+
+Pressure thresholds for cooling filtering (`AblativePressureCeilingBar = 150`, `RadiativePressureCeilingBar = 40`) live as package constants, not per-archetype — they're physics, not flavour.
+
+Init-order quirk: `liquid.go`'s `init()` calls `registerLiquidArchetype` which captures the placeholder `makeLiquidGenerator`. `liquid_generator.go`'s `init()` replaces the placeholder AND calls `rebuildSlotRegistry()` to re-register every archetype with the real generator. Unavoidable given Go's one-init-per-file model and the desire to keep Validate() in the commit that introduced the struct.
+
+Smoke test run (seed 42, `GenericCivilization`): rolled a `KR-RCS-LC-3987` monopropellant Hydrazine engine — 9.2 bar chamber, radiative cooling (sub-40 bar), catalytic ignition, no ablator, no gimbal, on/off throttle, 109s max burn, 293K ambient, all derived correctly from the DAG.
+
+
