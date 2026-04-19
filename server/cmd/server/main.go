@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/gkgkgkgk/ThereExists/server/internal/db"
+	"github.com/gkgkgkgk/ThereExists/server/internal/factory"
+	"github.com/gkgkgkgk/ThereExists/server/internal/factory/flight"
 	"github.com/gkgkgkgk/ThereExists/server/internal/handlers"
 	"github.com/rs/cors"
 )
@@ -21,6 +23,11 @@ func main() {
 	if err := db.Migrate(database); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
+
+	// Wire the factory's manufacturer picker into the flight dispatcher.
+	// Done here (not in factory/init) to keep the factory → flight edge
+	// one-way and avoid an import cycle.
+	flight.SetManufacturerPicker(factory.PickManufacturer)
 
 	ph := handlers.NewPlayerHandler(database)
 

@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
-
-	"github.com/gkgkgkgk/ThereExists/server/internal/factory/flight"
 )
 
 // Phase 3 manufacturer roster. Placeholder names — a later HIL pass
@@ -45,13 +43,6 @@ func init() {
 		},
 		Flavor: "Mid-market generalist. Nothing brilliant; nothing broken.",
 	})
-
-	// Wire the flight dispatcher to our manufacturer picker. Must happen
-	// after Manufacturers is populated — Go init() order within a package
-	// follows source-file dependency order, and this file imports
-	// flight/, so Civilizations/Manufacturers literals above are already
-	// populated when this call runs.
-	flight.SetManufacturerPicker(pickManufacturer)
 }
 
 // shortCode returns a compact archetype code for serial numbers.
@@ -64,10 +55,12 @@ func shortCode(archetype string) string {
 	return archetype
 }
 
-// pickManufacturer implements the injected picker for flight.GenerateForSlot.
-// Filter manufacturers by civilization, weight by archetype, sample.
-// A nil or missing archetype weight defaults to 1.0.
-func pickManufacturer(civilizationID, archetypeName string, rng *rand.Rand) (string, error) {
+// PickManufacturer implements the picker contract consumed by
+// flight.SetManufacturerPicker. Filter by civilization, weight by
+// archetype, sample. A nil or missing archetype weight defaults to 1.0.
+// Exported so main.go can wire it into flight/ at startup without
+// creating a factory → flight → factory import cycle.
+func PickManufacturer(civilizationID, archetypeName string, rng *rand.Rand) (string, error) {
 	type candidate struct {
 		id     string
 		weight float64
