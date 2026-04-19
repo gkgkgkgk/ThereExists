@@ -45,18 +45,36 @@ The user-facing payoff is unchanged: every player gets a ship that *makes sense*
 
 ## 2. The Factory Package
 
-### Starting layout — one system category at a time
-We start tiny: a single file that knows how to make a **liquid chemical engine**, plus shared scaffolding (`SystemBase`, mixtures registry). Once that shape settles, the same pattern is repeated for other propulsion categories (solid, ion, cold gas, nuclear thermal, …) and eventually for other system categories (power, thermal, sensors, …) as sibling files. A `propulsion.go` with a `PropulsionSystem` interface + dispatcher gets added once we have a second propulsion category to share it with.
+### Starting layout — per-category subdirectories
+Scaffolding lives at the package root; each system category gets its own subdirectory. This scales cleanly as new categories are added without file-name prefix bingo.
 
 ```
 server/internal/factory/
-  system_base.go         // SystemBase: identity fields shared across every system
+  system.go              // SystemBase — identity fields shared across every system
+  civilizations.go       // Civilization registry (hand-authored) — TechTier + TechProfile live here
+  manufacturers.go       // Manufacturer registry (hand-authored, HIL) — each has a CivilizationID
   mixtures.go            // propellant mixture registry (hand-authored)
-  manufacturers.go       // manufacturer registry (hand-authored, HIL)
-  propulsion_liquid.go   // liquid chemical: archetype + instance + generator
+  flight/
+    flight.go            // FlightSlot enum + slot-fill logic (shared FlightSystem interface lands with 2nd flight category)
+    liquid.go            // liquid chemical: archetype + instance + generator
+    // future: ion.go, solid.go, cold_gas.go, fusion.go, nls_*.go, ...
+  // future sibling dirs: power/, thermal/, sensors/, structural/, life_support/, ...
 ```
 
-Everything else (`catalog.yaml`, full `assembler.go`, `solver.go`, cross-category constraints) stays deferred.
+Everything else (`assembler.go`, `solver.go`, cross-category constraints) stays deferred.
+
+### Flight slots — every ship has three engines, all mandatory
+Every finished ship has exactly one engine per slot. **None of the three slots are optional.** The game's premise is "use what you have to solve problems," not "invent what you're missing" — a player without a Far drive has no path off their starting system and nothing to do, so Far is as mandatory as Short.
+
+- **Short** — close-range maneuvering: RCS, docking, sample collection, mining. Seconds-to-minutes burn, small thrust, high restart count.
+- **Medium** — orbital maneuvering, planetary takeoff/landing, intra-system transit. Minutes-to-hours burn, order(s) of magnitude more thrust.
+- **Far** — interstellar transit. Near-light-speed drives (NLS). Deliberately soft sci-fi: players can't wait real-world decades to reach other star systems. Future archetypes will lean into speculative physics (Alcubierre-style bubbles, antimatter torches, fusion ramjets, laser-pushed lightsails, etc.). **Far drives vary enormously in capability** — a `TopSpeedFractionC` (or equivalent) range on each Far archetype lets one archetype peak at 0.95c while another peaks at 0.001c. That spread *is* the primary gameplay dial at interstellar scale: some players are a Tuesday from their neighbor's star; others are decades away even at full burn.
+
+Every flight archetype declares which `FlightSlot` it fills. One archetype → one slot. `RCSLiquidChemical` → Short; future `OMSLiquidChemical` / `BoosterLiquidChemical` → Medium; future NLS archetypes → Far.
+
+**Provenance-consistency.** When a ship rolls all three engines, the generator biases toward manufacturers from the same civilization across slots — a ship's engines should feel like one program, not a yard sale. Ships whose three engines span multiple civilizations read as "salvaged" without needing a `Salvaged` label; the effect emerges from the provenance chain.
+
+**Phase 3 scope.** The "all three mandatory" invariant is a *finished-game* constraint. Phase 3 is a development milestone: only the Short slot has an archetype (`RCSLiquidChemical`), so generated ships intentionally have `Medium = null` and `Far = null`. These are dev-only incomplete ships, never player-facing. The `FlightSlot` enum + slot-fill logic land now because `GenerateRandomShip` needs them even in the one-slot case, and the stub makes adding Medium/Far a one-line registry entry later.
 
 ### The archetype + instance pattern
 Every system is generated via **archetype + instance**:
@@ -67,13 +85,13 @@ Every system is generated via **archetype + instance**:
 Generator signature is always the same shape:
 
 ```go
-func GenerateLiquidChemicalEngine(arch LiquidChemicalArchetype, rng *rand.Rand, qt QualityTier) *LiquidChemicalEngine
+func GenerateLiquidChemicalEngine(arch LiquidChemicalArchetype, rng *rand.Rand) *LiquidChemicalEngine
 ```
 
-The caller owns the `*rand.Rand` so ship-level generation can thread one seed lineage through every subsystem deterministically. `QualityTier` is rolled once at ship level and passed down.
+The caller owns the `*rand.Rand` so ship-level generation can thread one seed lineage through every subsystem deterministically. Ship-level `QualityTier` (see §3) influences generation by biasing *which archetype* is picked and *what ranges* the ship-level roller passes down — not via a parameter on this function.
 
 ### `SystemBase` — shared across every system
-Every system instance embeds `SystemBase`. Defining it now — before a second system type exists — avoids retrofitting identity fields across every system type later. Cost today: ~15 lines.
+Every system instance embeds `SystemBase`. Defining it now — before a second system type exists — avoids retrofitting identity fields across every system type later. Cost today: ~12 lines.
 
 ```go
 type SystemBase struct {
@@ -82,14 +100,17 @@ type SystemBase struct {
     ArchetypeName  string      // which archetype produced this instance
     ManufacturerID string      // FK into hand-authored manufacturer registry
     SerialNumber  string       // procedural, e.g. "KR-7-A-00142"
-    QualityTier   QualityTier  // Prototype / Standard / Refurbished / Salvaged
-    Health        float64      // 0.0–1.0, mutable, initialized by QualityTier
+    Health         float64     // 0.0–1.0, mutable
 }
 ```
+
+There's no `QualityTier` field — quality is *inherited* through `ManufacturerID → CivilizationID → TechTier` (see §3). That chain is what determines how aggressively an engine's `HealthInitRange` gets narrowed, how exotic a cooling method it's allowed to use, and how tight its throttle envelope can be. The player infers the civilization (and therefore the build quality) from symptoms and from the manufacturer itself — nothing labeled "QualityTier" is ever displayed or persisted on the system.
 
 ### `LiquidChemicalArchetype` — fields
 Ranges are `[2]float64` (or `[2]int`) unless noted. Field order below matches the generation DAG in the next section. No range is sampled uniformly when a dependency exists — dependents are conditioned on prior rolls.
 
+- **Slot**: `FlightSlot` (enum: Short | Medium | Far) — declared once per archetype, copied onto the generated instance. Governs which ship-slot this archetype is eligible to fill.
+- **Health**: `HealthInitRange` ([2]float64, 0.0–1.0) — range the ship-level generator narrows further based on `QualityTier` before the engine generator samples it.
 - **Performance driver**: `ChamberPressureRange` (bar). Rolled *first* — drives Isp ceiling, cooling demand, and thrust density. Typical: 5–300 bar.
 - **Cooling**: `AllowedCoolingMethods` (filtered at runtime by chamber pressure — e.g. Ablative impractical above ~150 bar, Radiative only below ~40 bar).
 - **Performance**: `IspVacuumRange` (s), `IspAtRefPressureRange` (s; only the *low* bound is used — the high bound is `IspVacuumSec` from the prior roll), `ReferencePressurePa` (scalar, typically 101325), `ThrustVacuumRange` (N, log-uniform — spans orders of magnitude).
@@ -121,14 +142,14 @@ Embeds `SystemBase`. Grouped by mutability.
 ### Generation order — dependency-grouped
 The generator is a DAG, not a flat uniform-sample pass. Each group depends on prior groups' outputs; no clamps or post-hoc fixups are needed because dependent samples are drawn from ranges *already bounded* by prior rolls.
 
-**Group 0 — `SystemBase` (cross-cutting)**
+**Group 0 — `SystemBase` + slot (cross-cutting)**
 - `ID` (`uuid.UUID`): fresh UUIDv4.
-- `ManufacturerID` (`string`): rolled from ship-archetype's manufacturer weights (hand-authored — see Manufacturers below).
+- `ManufacturerID` (`string`): rolled from the ship-level civilization-mix policy (see §3). Provenance-consistent ships draw manufacturers from a single civilization's roster; "salvaged" ships roll manufacturers independently per subsystem, often crossing civilizations.
 - `Name` (`string`): resolved from `{manufacturer.NamingConvention}(rng, archetype)`.
-- `SerialNumber` (`string`): procedural `{manufacturer}-{archetype_code}-{rng_suffix}`.
+- `SerialNumber` (`string`): procedural, `{manufacturer}-{archetype_code}-{rng_suffix}`.
 - `ArchetypeName` (`string`): copied from archetype.
-- `QualityTier` (`QualityTier`): passed in from ship-level generation.
-- `Health` (`float64`): `1.0` for Prototype/Standard, `0.7–0.95` for Refurbished, `0.4–0.8` for Salvaged.
+- `FlightSlot` (`FlightSlot` enum): copied from archetype onto the instance.
+- `Health` (`float64`): sampled from `HealthInitRange` *narrowed by the manufacturer's civilization's `TechTier`* — higher-tier civilizations produce engines nearer the top of the range; lower-tier produce nearer the bottom.
 
 **Group 1 — Performance driver (no dependencies)**
 - `ChamberPressureBar` (`float64`, bar): uniform-sample `ChamberPressureRange`. Everything downstream is conditioned on this.
@@ -175,8 +196,10 @@ The generator is a DAG, not a flat uniform-sample pass. Each group depends on pr
 type PropellantConfig int   // Monopropellant, Bipropellant
 type IgnitionMethod  int    // Spark, Pyrotechnic, Hypergolic, Catalytic
 type CoolingMethod   int    // Ablative, Regenerative, Radiative, Film
-type QualityTier     int    // Prototype, Standard, Refurbished, Salvaged
+type FlightSlot      int    // Short, Medium, Far
 ```
+
+`QualityTier` is defined alongside ship-level generation (§3), not here — it's never stored on a system.
 
 Each has `String()` for logging/display.
 
@@ -197,20 +220,52 @@ type Mixture struct {
 
 Mixtures are pre-defined (not generated) because they propagate cross-system: an engine's `MixtureID` must match a tank the ship will later carry. Keeping the registry small and hand-authored makes that cross-category constraint trivial.
 
+### Civilizations (hand-authored)
+Every manufacturer belongs to a civilization. A civilization captures two orthogonal axes:
+
+```go
+type Civilization struct {
+    ID           string
+    DisplayName  string
+    TechTier     int          // advancement level: N-point scale (e.g. 1–5). Drives Health range narrowing,
+                              // throttle-envelope tightness, access to exotic cooling methods, etc.
+    TechProfile  TechProfile  // cultural/scientific preferences — orthogonal to TechTier
+    Flavor       string       // short UI blurb
+}
+
+type TechProfile struct {
+    PreferredCoolingMethods []CoolingMethod   // ranking — earlier entries more likely
+    PreferredIgnitionTypes  []IgnitionMethod
+    PreferredMixtureIDs     []string
+    AversionToCryogenics    float64           // 0.0 (fine) – 1.0 (never)
+    FarDriveFamily          string            // which NLS archetype family this civilization tends to produce
+    // ...grow this struct as flavor axes reveal themselves
+}
+```
+
+**Why the two axes are separate.** `TechTier` is "how advanced is this civilization's engineering" — a ladder. `TechProfile` is "what does this civilization *prefer* to build" — horizontal flavor. Two Tier-3 civilizations can produce radically different engines: one favors hypergolic storable bipropellants with ablative cooling (reliability-first, easy logistics), the other favors cryogenic bipropellants with regenerative cooling (performance-first, fragile logistics). Fusing these into one ladder would flatten every civilization onto a "good/bad" spectrum and erase the texture.
+
+**Phase 4 — LLM-generated civilizations.** Civilizations are generated by an LLM given a seed prompt: the model emits a short description (species, culture, history, environmental constraints — e.g. "aquatic species on a high-gravity world with abundant rare earths") **and** the structured `TechTier` + `TechProfile` fields in one structured-output call. Keeping description and mechanical fields in a single schema prevents desync — the "loves hypergolic propellants because their homeworld is volcanic and cryogenic storage is impractical" description *has to* match a `TechProfile` that prefers hypergolic ignition and aversion-to-cryogenics.
+
+**Phase 3 — one generic civilization.** A single hand-authored `GenericCivilization` (mid-tier, no strong `TechProfile` biases) sits in `civilizations.go`. Every manufacturer's `CivilizationID` points to it. The provenance chain is exercised end-to-end — so swapping in real LLM-generated civs in Phase 4 is purely a content change, not a schema change.
+
 ### Manufacturers (hand-authored, human-in-the-loop)
-Manufacturer names, house styles, and naming conventions are **not procedurally generated at runtime**. `manufacturers.go` holds ~20–30 hand-authored entries:
+Manufacturer names, house styles, and naming conventions are **not procedurally generated at runtime**. `manufacturers.go` holds ~20–30 hand-authored entries, each tagged with its parent civilization:
 
 ```go
 type Manufacturer struct {
     ID                string
+    CivilizationID    string                                         // FK into civilizations.go
     DisplayName       string
-    NamingConvention  func(rng *rand.Rand, arch string) string  // produces model name
-    ArchetypeWeights  map[string]float64                         // biases which archetypes pull this manufacturer
-    Flavor            string                                     // UI blurb
+    NamingConvention  func(rng *rand.Rand, arch string) string       // produces model name
+    ArchetypeWeights  map[string]float64                             // biases which archetypes pull this manufacturer
+    Flavor            string                                         // UI blurb
 }
 ```
 
-Authoring this table is a separate HIL pass — procedural-only naming produces slop, and manufacturer flavor is load-bearing for the game's identity.
+A manufacturer inherits its parent civilization's `TechTier` and `TechProfile` — a Tier-3 civilization's manufacturers all produce Tier-3-grade engines, biased toward that civilization's preferences. This is what makes "who built this ship" mean something in the generator, not just in flavor text.
+
+Authoring both tables is a separate HIL pass — procedural-only naming produces slop, and manufacturer + civilization flavor is load-bearing for the game's identity.
 
 ### Cooling methods — each has real teeth
 No `ThermalLoadFactor` field. A future `HeatToHullW(throttle) float64` method (spec'd now, not implemented in Phase 3) computes heat leak into the ship's hull from `(throttle, ChamberPressureBar, CoolingMethod, Health, AblatorMassRemainingKg)`:
@@ -254,6 +309,8 @@ A `func (a LiquidChemicalArchetype) Validate() error` runs at package `init()` a
 ```go
 var RCSLiquidChemical = LiquidChemicalArchetype{
     Name:                             "RCSLiquidChemical",
+    FlightSlot:                       Short,
+    HealthInitRange:                  [2]float64{0.85, 1.0},
     ChamberPressureRange:             [2]float64{5, 25},
     IspVacuumRange:                   [2]float64{220, 290},
     IspAtRefPressureRange:            [2]float64{180, 240},
@@ -286,83 +343,59 @@ A single range-based archetype produces wide variety — one archetype can cover
 Not a blocker for v1. Flag the concern if authoring the third archetype feels painful.
 
 ### Dispatcher (stub today, real later)
-`GenerateRandomEngine(rng, qt) (PropulsionSystem, error)` maintains a registry of all archetypes across all propulsion categories. Selection policy: pick *category* uniformly (or with rarity weights — exotic drives rarer), then pick *archetype within category*. Category-first ordering means adding a new category doesn't dilute the visibility of existing categories.
+`flight.GenerateForSlot(slot FlightSlot, rng *rand.Rand) (FlightSystem, error)` maintains a registry of all flight archetypes keyed by `FlightSlot`. Selection policy within a slot: pick *category* uniformly (or with rarity weights — exotic drives rarer), then pick *archetype within category*. Category-first ordering means adding a new flight category doesn't dilute the visibility of existing ones.
 
-Today the registry holds one archetype. The `PropulsionSystem` interface is deferred until the second category lands.
+Today the registry holds one archetype (`RCSLiquidChemical`, slot=Short). Calls for `Medium` or `Far` return a typed "slot-empty" result for now; ship loadout simply omits those slots. The `FlightSystem` interface lands with the second flight category.
 
 ### Public API (kept narrow)
 ```go
-factory.GenerateLiquidChemicalEngine(arch, rng, qt)   // today
-factory.GenerateRandomEngine(rng, qt)                 // today — stub dispatcher
-// later: GenerateRandomShip(seed) composes engine + power + thermal + ...
+flight.GenerateLiquidChemicalEngine(arch, rng)   // today
+flight.GenerateForSlot(slot, rng)                // today — stub dispatcher
+// later: factory.GenerateRandomShip(seed) composes flight slots + power + thermal + ...
 ```
 
-Handlers only ever call `GenerateRandomShip` once it exists. Until then, `ships.loadout` contains only a propulsion entry.
+Handlers only ever call `GenerateRandomShip` once it exists. Until then, `ships.loadout` contains only a Short-slot flight entry.
 
 ### New endpoints
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/api/ships/regenerate` | Admin/debug — re-roll the active ship for a player |
+| `POST` | `/api/ships/generate` | Manual-only — hit it to roll a ship and inspect the result. Not wired into the UI in Phase 3. |
 
-`GET /api/player` shape is unchanged; `ship.loadout` becomes non-empty.
-
----
-
-## 3. Catalog Data *(deferred)*
-
-The original plan called for a YAML catalog embedded into the binary. We're deferring that until all system types exist as code. The shape below is recorded so future-us has a clear migration target if/when the variant count outgrows hand-written structs.
-
-```yaml
-version: 2026-04-17
-systems:
-  - id: flight.ion.mk2
-    type: flight
-    name: Ion Thruster Mk II
-    tags: [efficient, low-thrust]
-    attributes:
-      thrust_n: 0.25
-      isp_s: 4200
-      power_draw_w: 2400
-      mass_kg: 180
-      thermal_load_w: 600
-    visual:
-      thruster_geom: ion_quad
-      nozzle_count: 4
-    compatible_with:
-      power: ["rtg.*", "fission.*"]
-```
-
-### Types (unchanged from Phase 2)
-`flight`, `power`, `sensor`, `structural`, `thermal`, `life_support`, `propellant`, `engineering`, `probe`
-
-### What's new vs Phase 2
-- `tags` — for archetype scoring (scouts prefer `low-mass`, `efficient`).
-- `attributes` — typed numeric fields used by the solver and by runtime calculations.
-- `compatible_with` — soft compatibility hints (type → glob patterns over `id`) used to prune the search space.
-- `visual` — geometry hints the frontend uses to assemble the mesh.
-
-### Ownership
-The catalog is a **data file in the Go repo**, embedded into the binary at build time. No DB table, no migration story, no separate-service deploy. Editing the catalog is a code change, reviewed in PRs like everything else.
+`GET /api/player` shape is unchanged; `ship.loadout` becomes non-empty once `/generate` has been hit.
 
 ---
 
-## 4. Ship Generation Algorithm
+## 3. Ship Generation Algorithm
 
 ### Now (per category)
-Each `Generate<Category>(archetype, rng)` samples scalar ranges uniformly, resolves cross-field constraints (e.g. ignition ↔ propellant compatibility in liquid chemical), initializes runtime state, and returns a concrete instance. Caller owns the `*rand.Rand` so a single player seed can be threaded deterministically through every subsystem.
+Each `Generate<Category>(archetype, rng)` runs the dependency DAG from §2, returning a concrete instance. Caller owns the `*rand.Rand` so a single player seed can be threaded deterministically through every subsystem.
 
-The **dispatcher** (`GenerateRandomEngine`) picks an archetype from the category-wide registry and forwards to the matching generator. Today the registry holds one entry.
+The **dispatcher** (`flight.GenerateForSlot`) picks an archetype from the slot-keyed registry and forwards to the matching category generator. Today the registry holds one archetype (`RCSLiquidChemical`, Short slot).
+
+### Civilization-driven generation (the quality knob)
+There's no `QualityTier` enum. Build quality and tech flavor are *inherited* from the civilizations that built each subsystem, via the `Manufacturer → Civilization` chain (see §2). Ship-level generation exposes two levers that shape how this plays out:
+
+1. **Primary-civilization roll.** Every ship picks a *primary civilization* at generation time. Each subsystem's `ManufacturerID` roll is then weighted toward manufacturers belonging to that civilization. The result: all three engines feel like they came from the same culture — same naming conventions, same cooling preferences, same tech tier.
+2. **Civilization-mix policy.** A small probability is reserved for "salvaged" ships whose subsystems roll manufacturers *independently* (no primary-civilization bias), producing multi-civilization loadouts. This is what gives ships a yard-sale feel without needing a `Salvaged` label — the effect falls out of the provenance chain naturally.
+
+Once a manufacturer is picked, its civilization's `TechTier` narrows that subsystem's `HealthInitRange` (higher tier → nearer the top) and gates exotic options (low-tier civilizations can't produce Regenerative-cooled high-chamber-pressure engines; high-tier civilizations get access to the whole tree). Its `TechProfile` biases cooling/ignition/mixture rolls toward its preferences.
+
+None of this is stored on the ship or any subsystem beyond `ManufacturerID`. Tier is always *read through* the civilization FK. The player learns a civilization's reputation by observing its output — a ship stamped with a Tier-1 primitive manufacturer's logo will clearly be rougher than one from a Tier-5 post-scarcity manufacturer, without any in-game label needing to say so.
+
+**Phase 3 simplification.** With only `GenericCivilization` in the registry, the primary-civilization roll is trivial (always picks the one civ) and the civilization-mix policy has nothing to mix across. The mechanism is wired end-to-end; the variety lands in Phase 4 once LLM-generated civilizations populate the registry.
+
+**Phase 4 hook — player-origin civilization.** Once the LLM-generation pipeline exists (see §2 Civilizations), the *player's civilization of origin* is rolled (or story-generated) and used as the default primary civilization for their starting ship. This is how vague mission framing ("you're a scout from Civilization X, go find *something*") ties into the factory without requiring mission logic now.
 
 ### Later (`GenerateRandomShip`)
 Once the other system categories exist, generation is a **linear pipeline**, not a backtracking solver. Engines are rolled first; their combined dry mass + thrust class sets the ship's size envelope, and every subsequent category rolls within that running budget.
 
 1. Seed the RNG from the player seed.
-2. Roll `QualityTier` at ship level (passed to every subsystem generator).
+2. Roll the **primary civilization** (biased later by player-origin; uniform for now) and the civilization-mix policy (consistent vs. salvaged).
 3. Pick a **ship archetype** (scout / freighter / explorer) that biases which per-category archetypes are pulled from their registries.
-4. **Generate engine(s) first.** Their `DryMassKg` + `ThrustVacuumN` define the ship's mass class.
-5. Generate propellant tanks conditioned on engine(s)' `MixtureID`.
-6. Generate power, thermal bus, sensors, structural, etc. — each category receives the running mass/power/thermal budget from prior groups and rolls within it.
-7. Compute derived stats via methods on the instances (Δv, power balance, peak thermal load, `HeatToHullW`).
+4. **Generate all three flight slots** (`Short`, `Medium`, `Far`). Combined `DryMassKg` + `ThrustVacuumN` define the ship's mass class.
+5. Generate propellant tanks conditioned on each slot's `MixtureID`.
+6. Generate power, thermal bus, sensors, structural, etc. — each category receives the running mass/power/thermal budget from prior groups and rolls within it, with civilization-weighted manufacturer rolls threaded throughout.
+7. Compute derived stats via methods on the instances (Δv per slot, power balance, peak thermal load, `HeatToHullW`).
 8. Compute visual block from chosen variants.
 9. Return the assembled `ShipConfig`.
 
@@ -370,15 +403,16 @@ No backtracking: engines-first establishes the envelope, and each later category
 
 ---
 
-## 5. Go API Changes
+## 4. Go API Changes
 
 ### New responsibilities
-- Construct a `factory.Factory` at startup, pass into handlers alongside `*sql.DB`.
-- On player creation (Phase 2 already inserts an empty ship): replace the empty `INSERT ships` with a factory call, persist the resulting `loadout`, `derived`, `visual`, and snapshot the `factory_version`.
-- On `POST /api/ships/regenerate`: same flow but for an existing player; current active ship gets `status='derelict'`, new one gets created, `players.active_ship_id` is repointed.
+- Construct the factory package's registries at startup (archetypes, mixtures, manufacturers).
+- Implement `POST /api/ships/generate`: roll a ship via the factory, persist the resulting `loadout` into the caller's active `ships` row, and snapshot `factory_version` (code SHA or build tag). This is a **manual-only, debug-style** endpoint in Phase 3 — not wired into the UI and not triggered automatically on player creation.
+
+Player creation still inserts an empty ship (Phase 2 behavior, unchanged). The factory runs only when `/generate` is explicitly hit.
 
 ### `GET /api/player` response shape
-Already returns `ship`. In Phase 3 the embedded `ship.loadout` becomes meaningful:
+Already returns `ship`. In Phase 3, after `/generate` has been called for that player, the embedded `ship.loadout` becomes meaningful — but only the Short flight slot is populated:
 
 ```json
 {
@@ -387,24 +421,11 @@ Already returns `ship`. In Phase 3 the embedded `ship.loadout` becomes meaningfu
   "ship": {
     "id": "...",
     "loadout": {
-      "archetype": "scout",
-      "factory_version": "2026-04-17",
-      "systems": [
-        { "id": "...", "type": "flight",  "name": "Ion Thruster Mk II", "attributes": {...} },
-        { "id": "...", "type": "power",   "name": "RTG-7",              "attributes": {...} }
-      ],
-      "derived": {
-        "dry_mass_kg": 38420,
-        "delta_v_ms": 9100,
-        "peak_power_w": 12400,
-        "thermal_load_w": 8800
-      },
-      "visual": {
-        "hull_form": "needle",
-        "thruster_geom": "ion_quad",
-        "panel_area_m2": 22.4,
-        "radiator_area_m2": 9.0,
-        "accent_hue": 217
+      "factory_version": "b45f445",
+      "flight": {
+        "short":  { "id": "...", "archetype": "RCSLiquidChemical", "name": "...", /* full engine fields */ },
+        "medium": null,
+        "far":    null
       }
     },
     "state": {},
@@ -419,71 +440,71 @@ Already returns `ship`. In Phase 3 the embedded `ship.loadout` becomes meaningfu
 
 ---
 
-## 6. DB Changes
+## 5. DB Changes
 
-The Phase 2 `ships` table (`id`, `player_id`, `loadout`, `state`, `transform`, `status`, `created_at`) already covers what we need. Phase 3 adds nothing structural — `loadout` just stops being `'{}'`.
+The Phase 2 `ships` table (`id`, `player_id`, `loadout`, `state`, `transform`, `status`, `created_at`) already covers what we need. Phase 3 adds nothing structural — `loadout` just stops being `'{}'` once `/generate` is hit.
 
-Two small additions worth making:
+One small addition:
 
 | Change | Notes |
 |---|---|
-| `ships.archetype TEXT NULL` | Hot-path lookups ("show me all freighters in this sector") shouldn't have to crack open `loadout` JSONB. Cheap denormalization. |
-| `ships.factory_version TEXT NULL` | Records which catalog version produced the ship. Lets us reason about ships generated against old catalogs after updates. |
+| `ships.factory_version TEXT NULL` | Records which build of the factory produced the ship. Lets us reason about ships generated before a later factory change. |
 
-Snapshotting the full system objects inside `loadout` (rather than referencing catalog IDs by reference) means a catalog change never silently mutates an existing player's ship. The catalog is a generator input, not a runtime lookup.
-
----
-
-## 7. Frontend Changes
-
-The frontend **reads** the new ship loadout but most of the visual changes are scaffolding for later phases. Specifically in Phase 3:
-
-- Replace the hardcoded `buildSpacecraft(rng)` in `client/src/scene.js` with a `buildSpacecraft(shipVisual)` that consumes the `visual` block from the API response.
-- Hull form, thruster geometry, panel area, radiator area, and accent hue all become data-driven.
-- Phase 2's placeholder geometry is retained as the *fallback* when fields are missing.
-- HUD gets a small "SHIP: <archetype>" line so the player can see which archetype they rolled.
-
-No cockpit changes in this phase — that lives in Phase 4 (system-specific cockpit instruments).
+Snapshotting full system objects inside `loadout` (rather than referencing archetypes by name and re-resolving at read time) means an archetype change never silently mutates an existing player's ship. Archetypes are generator *inputs*, not runtime lookups.
 
 ---
 
-## 8. Testing
+## 6. Frontend Changes
 
-- **`factory_test.go`** — pure unit tests on the assembler. No DB, no HTTP. Fast.
+**None in Phase 3.** `/generate` is a manual endpoint for inspecting factory output; the frontend does not consume the new `loadout` shape this phase. Frontend work to render the rolled engine is deferred to the next phase.
+
+---
+
+## 7. Testing
+
+- **`factory/...` unit tests** — pure tests, no DB, no HTTP. Fast.
   - Determinism: same seed → same ship.
-  - Constraint satisfaction: every generated ship's derived stats must satisfy the archetype's constraints.
-  - All catalog systems are reachable: fuzz over many seeds, assert every catalog entry shows up in *some* generated ship across N rolls.
-- **Handler tests** — table-driven, hit a real Postgres in CI (existing pattern).
+  - DAG invariants: across many seeds, `IspAtRefPressureSec ≤ IspVacuumSec`, `CanThrottle` matches `MaxThrottle > MinThrottle`, `GimbalRangeDegrees == 0` iff `DryMassKg < GimbalEligibleMassKg`, `InitialAblatorMassKg == 0` iff `CoolingMethod != Ablative`.
+  - Archetype reachability: every archetype's full cross-product of enum choices (cooling × mixture × ignition) is reached across N rolls.
+  - `Validate()` on every registered archetype passes at package init.
+- **Handler tests** — `POST /api/ships/generate` writes a non-empty `loadout`; `GET /api/player` round-trips it.
 
 ---
 
-## 9. Open Questions
+## 8. Open Questions
 
-- **Archetype coverage for v1**: one liquid chemical archetype is the minimum bar. How many more before moving laterally to other system categories? *Lean: ship one archetype end-to-end, then go laterally (power/thermal/sensors) rather than pile up propulsion variants.*
-- **Manufacturer table authoring**: a separate HIL pass with the user — not in scope for the first factory PR, but blocks end-to-end naming.
+- **Archetype coverage for v1**: one liquid chemical archetype (Short slot) is the minimum bar. Lean: ship one archetype end-to-end, then go laterally (power/thermal/sensors) rather than pile up propulsion variants.
+- **Manufacturer table authoring**: a separate HIL pass with the user — not in scope for the first factory PR, but blocks end-to-end naming (placeholder names are fine until then).
 - **Wear-model constants** (`k`, `base_wear`, per-cooling-method coefficients): TBD until the simulation phase starts. Shape is locked; numbers are not.
-- **Dispatcher rarity weights**: uniform for v1; when do we introduce rarity tiers for exotic drives? Punt until there are enough categories to make "rare" meaningful.
+- **Dispatcher rarity weights**: uniform for v1; rarity tiers for exotic drives punted until there are enough categories to make "rare" meaningful.
+- **Phase 3 civilization roster**: exactly one — `GenericCivilization`. Real variety lands in Phase 4 via LLM generation.
+- **Phase 4 LLM civ-generation prompt**: needs to be authored. Structured-output call that emits `{description, TechTier, TechProfile}` in a single schema so description and mechanics can't desync.
+- **Player-origin civilization**: deferred worldbuilding hook. Wiring is in place (primary-civilization roll is the extension point), but the player-origin source and mission-framing story layer are Phase 4+ concerns.
 - **Probe factory in scope?** Listed below as a stretch goal. Same package, new entry point.
 
 ---
 
-## 10. Out of Scope for Phase 3
+## 9. Out of Scope for Phase 3
 
-- Flight controls / Δv simulation (player flying the ship)
+- Medium and Far flight slots (only Short is populated)
+- Multi-engine ship assembly beyond the single Short engine
+- LLM-driven civilization generation (Phase 4) — Phase 3 uses a single hand-authored `GenericCivilization`
+- Non-flight system categories (power, thermal, sensors, structural, life support, propellant tanks)
+- Frontend rendering of the rolled engine
+- Flight controls / Δv simulation
 - Sensor scanning gameplay
 - Spacecraft OS CLI
 - Multi-player traces / shared universe state
 - AI co-pilot
 - Economy / resource consumption
-- Cockpit instruments tied to specific systems (Phase 4)
+- Cockpit instruments tied to specific systems
 
 ---
 
 ## Phase 3 Definition of Done
 
-- A new player loads the app, hits `GET /api/player`, and the Go server's factory package generates a ship inline before responding.
-- The returned ship has internally-consistent derived stats: power closes, mass under cap, thermal load served.
-- The frontend renders a placeholder ship whose **shape** changes visibly with the rolled archetype and systems (different thruster, different panel size).
-- The factory has at least 6 catalog entries per system type and 3 archetypes.
-- `factory_test.go` covers determinism and constraint satisfaction.
-- `POST /api/ships/regenerate` works end-to-end and correctly transitions the previous ship to `derelict`.
+- `POST /api/ships/generate` rolls a ship via the factory, persists the `loadout` into the player's active `ships` row, and returns it. Manually hitting this endpoint produces visibly-varying engines across seeds.
+- `GET /api/player` round-trips the persisted `loadout`.
+- The factory ships the `RCSLiquidChemical` archetype end-to-end: DAG generator, `Validate()` passing at init, cooling/ignition derivation working, Isp two-point interpolation exposed as a method, `HeatToHullW` and `Tick` spec'd but unimplemented.
+- Factory unit tests cover determinism and DAG invariants.
+- `SystemBase`, `civilizations.go` (single `GenericCivilization` entry), `manufacturers.go` (stub table pointing at the generic civ), `mixtures.go`, and `flight/flight.go` (FlightSlot enum + slot-fill stub) are in place so Phase 4's LLM civ generation and future archetypes are clearly content changes, not scaffolding changes.
