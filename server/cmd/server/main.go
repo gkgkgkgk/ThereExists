@@ -30,9 +30,11 @@ func main() {
 	flight.SetManufacturerPicker(factory.PickManufacturer)
 
 	ph := handlers.NewPlayerHandler(database)
+	sh := handlers.NewShipHandler(database)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/player", ph.GetPlayer)
+	mux.HandleFunc("POST /api/ships/generate", sh.Generate)
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
