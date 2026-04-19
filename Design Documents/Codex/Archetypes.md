@@ -17,7 +17,7 @@ The code has two layers that are easy to mix up:
 - **Category**: a *kind* of system. "Liquid-chemical engine" is one category. "Ion thruster" will be another. Categories are defined by a shared Go struct and a shared generator — they describe what fields exist and how to roll values into them.
 - **Archetype**: a *specific template within* a category. `RCSLiquidChemical` is one archetype of the liquid-chemical engine category. All archetypes in the same category use the same generator; they only differ in the number ranges they feed it.
 
-So when we say "this engine came from the `RCSLiquidChemical` archetype," we mean "it was rolled from the liquid-chemical category, using the specific ranges for small reaction-control thrusters." Another engine from `OMSLiquidChemical` would also be a liquid-chemical engine — but its ranges would produce something much beefier.
+So when we say "this engine came from the `RCSLiquidChemical` archetype," we mean "it was rolled from the liquid-chemical category, using the specific ranges for small reaction-control thrusters." Another engine from `ManeuveringLiquidChemical` would also be a liquid-chemical engine — but its ranges would produce something much beefier.
 
 ## What's in an archetype?
 
@@ -38,35 +38,40 @@ The only archetype shipping in Phase 3. Small, numerous, on-off thrusters used f
 
 **Why it's the first archetype to ship:** smallest end-to-end thing that exercises every feature of the generator — propellant derivation, cooling filtering, ablator tracking, TechTier-narrowed health — without needing complex ship-level sizing logic.
 
-## Archetypes we'll add later (sketched in Plan §2)
+## Slots and categories — the mapping
 
-### `OMSLiquidChemical` — Orbital Maneuvering System (Medium slot)
+The game starts the player in space and focuses on in-space travel, so the traditional "first-stage booster" / "upper stage" split doesn't apply — there's no planetary launch to optimize around. Instead, the three flight slots are organized by *range*:
 
-Mid-sized engines for orbital transfers, planetary takeoff/landing. Think the OMS pods on the Space Shuttle, or the main engine on a lunar lander. Much higher thrust than RCS (10–200 kN), heavier (100–2000 kg), does gimbal (you steer the thrust vector to control attitude during a burn), throttleable, runs for minutes to hours. Same liquid-chemical category — same struct, same generator — just different ranges.
+- **Short** — close-range maneuvering: docking, station-keeping, rotating the ship, nudging into a parking orbit.
+- **Medium** — intra-system transit: moving between planets, moons, asteroids within a single star system. Burns measured in minutes to hours.
+- **Far** — interstellar: crossing between star systems. Liquid-chemical physics cannot reach here — exhaust velocities are thousands to millions of times too low. Far is a *different category of physics entirely*.
 
-### `BoosterLiquidChemical` — first-stage boosters (Medium slot)
+Liquid chemical realistically covers Short and Medium. Far needs fusion torches, antimatter drives, Alcubierre bubbles, or laser-pushed lightsails — its own category, with its own struct and generator.
 
-The giant engines that haul a ship off a planet. Very high thrust (hundreds of kN to MN), high chamber pressure (100–300 bar → access to regenerative cooling), heavy, limited restart count (sometimes just one — light them, burn them, stage them). Shares the liquid-chemical generator but the ranges push into a completely different physics regime.
+## Archetypes we'll add later
 
-### `HypergolicStorable` — "storable" bipropellants
+### `ManeuveringLiquidChemical` — Medium slot
 
-An archetype that restricts `AllowedMixtureIDs` to hypergolic, non-cryogenic mixtures. These engines can sit on a pad (or in deep space) for years without active cooling, but the propellants are toxic and corrosive. Good for long-duration missions where reliability matters more than performance. Same liquid-chemical category — the restriction is just in the allowed-mixture list.
+Mid-sized engines for intra-system transit. Much higher thrust than RCS (10–200 kN), heavier (100–2000 kg), gimbaled (you steer the thrust vector to control attitude during a burn), throttleable, runs for minutes to hours. Same liquid-chemical category as RCS — same struct, same generator — just different ranges.
 
-### `CryogenicUpperStage` — high-Isp vacuum engines
+### `HypergolicStorable` — variant for long-duration missions
 
-The opposite trade: restrict `AllowedMixtureIDs` to cryogenic mixtures (`LOX/LH2`, `LOX/CH4`). Enormously higher Isp, but propellants boil off constantly, restarts are limited, every hour in space costs fuel. Again, same liquid-chemical category — different range emphasis and different mixture allow-list.
+An archetype that restricts `AllowedMixtureIDs` to hypergolic, non-cryogenic mixtures. These engines can sit unused for years without active cooling, but the propellants are toxic and corrosive. Good for long-duration missions where reliability matters more than performance. Same liquid-chemical category — the restriction is just in the allowed-mixture list.
+
+### `CryogenicHighIsp` — variant for performance-first missions
+
+The opposite trade: restrict `AllowedMixtureIDs` to cryogenic mixtures (`LOX/LH2`, `LOX/CH4`). Much higher Isp, but propellants boil off constantly, restarts are limited, every hour costs fuel. Again, same liquid-chemical category — different range emphasis and different mixture allow-list.
 
 ## Other categories (not built yet — Phase 4+)
 
-Liquid chemical is just the first of many propulsion categories. The Plan sketches:
+Liquid chemical is just the first of many propulsion categories. Sketched in Plan §2:
 
-- **Ion drive** (Short slot or Medium slot depending on archetype) — electric propulsion, tiny thrust, enormous Isp, needs huge power budget. Runs for months continuously.
-- **Solid rocket** (Medium slot) — fire once, can't throttle, can't shut down. Cheap and simple.
-- **Cold gas** (Short slot) — just a compressed gas through a nozzle. Terrible Isp, but reliable and simple — good for tiny satellites.
-- **Fusion torch** (Far slot) — hypothetical; Plan §2 reserves this for interstellar transit.
-- **NLS variants** (Far slot) — "near-light-speed" drives: Alcubierre bubbles, antimatter torches, laser-pushed lightsails. Deliberately soft sci-fi so players don't have to wait real-world decades for interstellar transit.
+- **Ion drive** (Short or Medium) — electric propulsion, tiny thrust, enormous Isp, needs huge power budget. Runs for months continuously.
+- **Cold gas** (Short) — compressed gas through a nozzle. Terrible Isp, but reliable and simple — good for tiny satellites and fine-positioning.
+- **Fusion torch** (Far) — hypothetical; reserved for interstellar transit.
+- **NLS variants** (Far) — "near-light-speed" drives: Alcubierre bubbles, antimatter torches, laser-pushed lightsails. Deliberately soft sci-fi so players don't have to wait real-world decades for interstellar transit.
 
-Each of these will be its own *category* — its own struct type, its own generator, its own set of archetypes. A ship's three flight slots will pull across categories: a ship might have cold-gas RCS in the Short slot, a solid booster in the Medium slot, and a fusion torch in the Far slot — or any other combination the civilizations have access to.
+Each of these will be its own *category* — its own struct type, its own generator, its own set of archetypes. A ship's three flight slots pull across categories: a ship might have cold-gas in Short, a liquid-chemical maneuvering engine in Medium, and a fusion torch in Far — or any other combination the civilizations have access to.
 
 ## How quality enters the picture
 
@@ -82,6 +87,6 @@ So two engines rolled from the same `RCSLiquidChemical` archetype can feel very 
 
 **Extend an existing archetype** (widen ranges, add an enum value) when the change is quantitative: "I want RCS thrusters to cover a bigger dry-mass range."
 
-**Add a new archetype** when the *shape* of the engine changes: different restart semantics, different cooling options unlocked, different propellant allow-list. `BoosterLiquidChemical` and `RCSLiquidChemical` are both liquid-chemical engines, but their ranges are so different that a single archetype covering both would feel incoherent — you'd roll a 1kg booster or a 1-ton RCS thruster.
+**Add a new archetype** when the *shape* of the engine changes: different restart semantics, different cooling options unlocked, different propellant allow-list. `ManeuveringLiquidChemical` and `RCSLiquidChemical` are both liquid-chemical engines, but their ranges are so different that a single archetype covering both would feel incoherent — you'd roll a 1 kg maneuvering engine or a 1-ton RCS thruster.
 
 **Escalate to a new category** when the *physics* changes: ion drives don't belong in the liquid-chemical struct because half the liquid-chemical fields (chamber pressure, propellant config, ablator mass) don't mean anything for an ion drive.
