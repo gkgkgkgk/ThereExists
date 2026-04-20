@@ -109,7 +109,10 @@ func TestShipHandler_Generate_RoundTrip(t *testing.T) {
 	if err := json.Unmarshal(roundtripResp.Body.Bytes(), &roundtrip); err != nil {
 		t.Fatalf("decode roundtrip: %v", err)
 	}
-	if roundtrip.ShipID != player.ShipID {
-		t.Errorf("ship_id changed across calls: %s → %s", player.ShipID, roundtrip.ShipID)
+	if player.Ship == nil || roundtrip.Ship == nil {
+		t.Fatalf("ship missing: player=%v roundtrip=%v", player.Ship, roundtrip.Ship)
+	}
+	if roundtrip.Ship.ID != player.Ship.ID {
+		t.Errorf("ship id changed across calls: %s -> %s", player.Ship.ID, roundtrip.Ship.ID)
 	}
 }
