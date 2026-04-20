@@ -1,0 +1,136 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Backend API for the ThereExists game.",
+        "title": "ThereExists API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "basePath": "/",
+    "paths": {
+        "/api/health": {
+            "get": {
+                "description": "Returns \"ok\" if the server is running.",
+                "produces": [
+                    "text/plain"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Health check",
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/player": {
+            "get": {
+                "description": "Looks up an existing player by id, or creates a new player (with an active ship) if id is missing or not found.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "player"
+                ],
+                "summary": "Get or create a player",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Existing player UUID",
+                        "name": "id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.PlayerResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/ships/generate": {
+            "post": {
+                "description": "Rolls a ship via the factory and persists it onto the player's active ship. Defaults to the player's seed; pass ?seed= to override.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ships"
+                ],
+                "summary": "Generate a ship loadout",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Player UUID",
+                        "name": "player_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Optional seed override",
+                        "name": "seed",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Ship loadout JSON",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "missing player_id query param",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "no active ship for player",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "handlers.PlayerResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "seed": {
+                    "type": "integer"
+                },
+                "ship_id": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

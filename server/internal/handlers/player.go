@@ -36,6 +36,15 @@ type PlayerResponse struct {
 	Ship *ShipResponse `json:"ship,omitempty"`
 }
 
+// GetPlayer godoc
+// @Summary      Get or create a player
+// @Description  Looks up an existing player by id, or creates a new player (with an active ship) if id is missing or not found.
+// @Tags         player
+// @Produce      json
+// @Param        id   query     string  false  "Existing player UUID"
+// @Success      200  {object}  PlayerResponse
+// @Failure      500  {string}  string  "internal server error"
+// @Router       /api/player [get]
 func (h *PlayerHandler) GetPlayer(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	playerID := r.URL.Query().Get("id")

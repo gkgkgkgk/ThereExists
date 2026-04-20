@@ -40,6 +40,7 @@ func Migrate(database *sql.DB) error {
 				CHECK (status IN ('active','derelict','destroyed')),
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
+		`ALTER TABLE ships ADD COLUMN IF NOT EXISTS factory_version TEXT`,
 		`ALTER TABLE players
 			ADD COLUMN IF NOT EXISTS active_ship_id UUID
 				REFERENCES ships(id) ON DELETE SET NULL`,

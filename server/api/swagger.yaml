@@ -1,0 +1,91 @@
+basePath: /
+definitions:
+  handlers.PlayerResponse:
+    properties:
+      id:
+        type: string
+      seed:
+        type: integer
+      ship_id:
+        type: string
+    type: object
+info:
+  contact: {}
+  description: Backend API for the ThereExists game.
+  title: ThereExists API
+  version: "1.0"
+paths:
+  /api/health:
+    get:
+      description: Returns "ok" if the server is running.
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: ok
+          schema:
+            type: string
+      summary: Health check
+      tags:
+      - health
+  /api/player:
+    get:
+      description: Looks up an existing player by id, or creates a new player (with
+        an active ship) if id is missing or not found.
+      parameters:
+      - description: Existing player UUID
+        in: query
+        name: id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.PlayerResponse'
+        "500":
+          description: internal server error
+          schema:
+            type: string
+      summary: Get or create a player
+      tags:
+      - player
+  /api/ships/generate:
+    post:
+      description: Rolls a ship via the factory and persists it onto the player's
+        active ship. Defaults to the player's seed; pass ?seed= to override.
+      parameters:
+      - description: Player UUID
+        in: query
+        name: player_id
+        required: true
+        type: string
+      - description: Optional seed override
+        in: query
+        name: seed
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Ship loadout JSON
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: missing player_id query param
+          schema:
+            type: string
+        "404":
+          description: no active ship for player
+          schema:
+            type: string
+        "500":
+          description: internal server error
+          schema:
+            type: string
+      summary: Generate a ship loadout
+      tags:
+      - ships
+swagger: "2.0"
