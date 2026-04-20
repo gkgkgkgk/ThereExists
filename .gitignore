@@ -23,3 +23,6 @@ Thumbs.db
 .vscode/settings.json
 .idea/
 .claude/
+
+# dev.ps1 / stop.ps1 runtime state
+.dev-state.json

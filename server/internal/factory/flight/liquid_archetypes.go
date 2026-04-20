@@ -17,6 +17,7 @@ var RCSLiquidChemical = LiquidChemicalArchetype{
 	Name:                            "RCSLiquidChemical",
 	FlightSlot:                      Short,
 	HealthInitRange:                 [2]float64{0.85, 1.0},
+	CountRange:                      [2]int{4, 16}, // RCS clusters are many small thrusters
 	ChamberPressureRange:            [2]float64{5, 25},
 	IspVacuumRange:                  [2]float64{220, 290},
 	IspAtRefPressureRange:           [2]float64{180, 240},

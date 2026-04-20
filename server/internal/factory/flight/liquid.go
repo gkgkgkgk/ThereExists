@@ -29,6 +29,10 @@ type LiquidChemicalArchetype struct {
 
 	// Group 0 — identity
 	HealthInitRange [2]float64
+	// CountRange gives the number of identical physical units in the
+	// system (redundancy). Inclusive, lo ≥ 1. Each unit gets its own
+	// Health entry so damage/repair can act per-unit.
+	CountRange [2]int
 
 	// Group 1 — performance driver
 	ChamberPressureRange [2]float64 // bar
@@ -168,6 +172,9 @@ func (a LiquidChemicalArchetype) Validate() error {
 		check(r[0] <= r[1], fmt.Sprintf("%s: lo (%v) > hi (%v)", name, r[0], r[1]))
 	}
 	checkRange("HealthInitRange", a.HealthInitRange)
+
+	check(a.CountRange[0] >= 1, fmt.Sprintf("CountRange.lo (%d) must be >= 1", a.CountRange[0]))
+	check(a.CountRange[1] >= a.CountRange[0], fmt.Sprintf("CountRange: lo (%d) > hi (%d)", a.CountRange[0], a.CountRange[1]))
 	checkRange("ChamberPressureRange", a.ChamberPressureRange)
 	checkRange("IspVacuumRange", a.IspVacuumRange)
 	checkRange("IspAtRefPressureRange", a.IspAtRefPressureRange)
@@ -231,7 +238,15 @@ func GenerateLiquidChemicalEngine(a LiquidChemicalArchetype, ctx factory.GenCont
 	e.ManufacturerID = mfg.ID
 	e.SerialNumber = mfg.NamingConvention(rng, a.Name)
 	e.Name = e.SerialNumber
-	e.Health = rollHealth(a.HealthInitRange, civ.TechTier, rng)
+
+	// Redundancy: roll a unit count, then roll per-unit initial health so
+	// manufacturing variance shows up across siblings in the same system.
+	countSpan := a.CountRange[1] - a.CountRange[0] + 1
+	e.Count = a.CountRange[0] + rng.Intn(countSpan)
+	e.Health = make([]float64, e.Count)
+	for i := range e.Health {
+		e.Health[i] = rollHealth(a.HealthInitRange, civ.TechTier, rng)
+	}
 
 	// ── Group 1 — ChamberPressureBar (performance driver) ─────────────
 	e.ChamberPressureBar = factory.Uniform(a.ChamberPressureRange[0], a.ChamberPressureRange[1], rng)

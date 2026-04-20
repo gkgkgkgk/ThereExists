@@ -6,12 +6,19 @@ import (
 	"os"
 	"strings"
 
+	_ "github.com/gkgkgkgk/ThereExists/server/api"
 	"github.com/gkgkgkgk/ThereExists/server/internal/db"
 	"github.com/gkgkgkgk/ThereExists/server/internal/factory"
 	"github.com/gkgkgkgk/ThereExists/server/internal/factory/flight"
 	"github.com/gkgkgkgk/ThereExists/server/internal/handlers"
 	"github.com/rs/cors"
+	httpSwagger "github.com/swaggo/http-swagger/v2"
 )
+
+// @title           ThereExists API
+// @version         1.0
+// @description     Backend API for the ThereExists game.
+// @BasePath        /
 
 func main() {
 	database, err := db.Connect(os.Getenv("DATABASE_URL"))
@@ -35,10 +42,11 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/player", ph.GetPlayer)
 	mux.HandleFunc("POST /api/ships/generate", sh.Generate)
-	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
-	})
+	mux.HandleFunc("GET /api/health", healthCheck)
+
+	mux.Handle("GET /swagger/", httpSwagger.Handler(
+		httpSwagger.URL("/swagger/doc.json"),
+	))
 
 	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
 	if allowedOrigins == "" {
@@ -59,4 +67,16 @@ func main() {
 
 	log.Printf("Server listening on :%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, c.Handler(mux)))
+}
+
+// healthCheck godoc
+// @Summary      Health check
+// @Description  Returns "ok" if the server is running.
+// @Tags         health
+// @Produce      plain
+// @Success      200  {string}  string  "ok"
+// @Router       /api/health [get]
+func healthCheck(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("ok"))
 }

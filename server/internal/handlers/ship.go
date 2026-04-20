@@ -24,6 +24,18 @@ func NewShipHandler(db *sql.DB) *ShipHandler {
 // the UI in Phase 3. Determinism: the seed defaults to the player's
 // seed, so repeated calls return the same ship. Pass ?seed=<int> to
 // override (useful for inspecting variety without creating new players).
+//
+// @Summary      Generate a ship loadout
+// @Description  Rolls a ship via the factory and persists it onto the player's active ship. Defaults to the player's seed; pass ?seed= to override.
+// @Tags         ships
+// @Produce      json
+// @Param        player_id  query     string  true   "Player UUID"
+// @Param        seed       query     int     false  "Optional seed override"
+// @Success      200        {object}  map[string]interface{}  "Ship loadout JSON"
+// @Failure      400        {string}  string  "missing player_id query param"
+// @Failure      404        {string}  string  "no active ship for player"
+// @Failure      500        {string}  string  "internal server error"
+// @Router       /api/ships/generate [post]
 func (h *ShipHandler) Generate(w http.ResponseWriter, r *http.Request) {
 	playerID := r.URL.Query().Get("player_id")
 	if playerID == "" {

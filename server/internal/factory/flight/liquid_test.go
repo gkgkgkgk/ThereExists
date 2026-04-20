@@ -60,8 +60,16 @@ func TestDAGInvariants(t *testing.T) {
 		if (e.InitialAblatorMassKg > 0) != (e.CoolingMethod == factory.Ablative) {
 			t.Fatalf("seed %d: ablator mass (%v) vs cooling (%v) mismatch", seed, e.InitialAblatorMassKg, e.CoolingMethod)
 		}
-		if e.Health < 0 || e.Health > 1 {
-			t.Fatalf("seed %d: Health out of [0,1]: %v", seed, e.Health)
+		if e.Count < 1 {
+			t.Fatalf("seed %d: Count must be >= 1, got %d", seed, e.Count)
+		}
+		if len(e.Health) != e.Count {
+			t.Fatalf("seed %d: len(Health)=%d != Count=%d", seed, len(e.Health), e.Count)
+		}
+		for i, h := range e.Health {
+			if h < 0 || h > 1 {
+				t.Fatalf("seed %d: Health[%d] out of [0,1]: %v", seed, i, h)
+			}
 		}
 		if e.RestartsUsed != 0 || e.IsFiring {
 			t.Fatalf("seed %d: non-zero runtime state at generation", seed)
