@@ -68,14 +68,17 @@ func TestGenerateRandomShip_JSONShape(t *testing.T) {
 			t.Errorf("flight slot %q missing from JSON (must be present even when null)", slot)
 		}
 	}
-	if !bytes.Equal(parsed.Flight["medium"], []byte("null")) {
-		t.Errorf("flight.medium = %s, want null", parsed.Flight["medium"])
-	}
-	if !bytes.Equal(parsed.Flight["far"], []byte("null")) {
-		t.Errorf("flight.far = %s, want null", parsed.Flight["far"])
-	}
 	if bytes.Equal(parsed.Flight["short"], []byte("null")) {
-		t.Error("flight.short is null — Phase 3 must populate the Short slot")
+		t.Error("flight.short is null — Short must populate on every ship")
+	}
+	if bytes.Equal(parsed.Flight["medium"], []byte("null")) {
+		t.Error("flight.medium is null — Phase 4 registers Medium archetypes for all civs")
+	}
+	// Far is still null — no Far archetype registered yet (commit 5),
+	// and even once RBCA registers it gates to TechTier 5 (commit 6).
+	// GenericCivilization is tier 3.
+	if !bytes.Equal(parsed.Flight["far"], []byte("null")) {
+		t.Errorf("flight.far = %s, want null (tier-3 civ, RBCA not yet registered)", parsed.Flight["far"])
 	}
 }
 

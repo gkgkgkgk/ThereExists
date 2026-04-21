@@ -3,6 +3,7 @@ package flight
 import (
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 
 	"github.com/gkgkgkgk/ThereExists/server/internal/factory"
@@ -24,8 +25,9 @@ import (
 // order — dependency-grouped") defines how dependent samples are drawn
 // so no post-hoc clamping is needed.
 type LiquidChemicalArchetype struct {
-	Name       string
-	FlightSlot FlightSlot
+	Name        string
+	Description string
+	FlightSlot  FlightSlot
 
 	// Group 0 — identity
 	HealthInitRange [2]float64
@@ -146,7 +148,32 @@ func (e *LiquidChemicalEngine) Tick(dt, throttle float64) {
 // by registerLiquidArchetype() calls in liquid_archetypes.go.
 var registeredArchetypes []LiquidChemicalArchetype
 
+// registerLiquidArchetype enforces structural validation (panics on
+// failure) and then filters AllowedMixtureIDs to the subset that
+// actually resolves in factory.Mixtures. Unresolved mixtures are logged
+// as warnings — this lets Phase 4 infrastructure land before the
+// full mixture catalog is authored. An archetype whose mixture list
+// becomes empty after filtering is skipped (logged) rather than
+// registered, so the generator never picks an unusable archetype.
 func registerLiquidArchetype(a LiquidChemicalArchetype) {
+	if err := a.Validate(); err != nil {
+		panic(fmt.Sprintf("flight: archetype %q failed validation: %v", a.Name, err))
+	}
+
+	resolved := make([]string, 0, len(a.AllowedMixtureIDs))
+	for _, id := range a.AllowedMixtureIDs {
+		if _, ok := factory.LookupMixture(id); ok {
+			resolved = append(resolved, id)
+		} else {
+			log.Printf("flight: archetype %q references unauthored mixture %q — dropping reference", a.Name, id)
+		}
+	}
+	if len(resolved) == 0 {
+		log.Printf("flight: archetype %q has no resolved mixtures — skipping registration", a.Name)
+		return
+	}
+	a.AllowedMixtureIDs = resolved
+
 	registeredArchetypes = append(registeredArchetypes, a)
 	register(a.FlightSlot, a.Name, func(manufacturerID string, rng *rand.Rand) (FlightSystem, error) {
 		return GenerateLiquidChemicalEngine(a, factory.GenContext{
@@ -199,11 +226,8 @@ func (a LiquidChemicalArchetype) Validate() error {
 
 	check(len(a.AllowedCoolingMethods) > 0, "AllowedCoolingMethods must be non-empty")
 	check(len(a.AllowedMixtureIDs) > 0, "AllowedMixtureIDs must be non-empty")
-	for _, id := range a.AllowedMixtureIDs {
-		if _, ok := factory.Mixtures[id]; !ok {
-			errs = append(errs, fmt.Errorf("AllowedMixtureIDs: unknown mixture %q", id))
-		}
-	}
+	// Mixture-resolution is checked at registration time (registerLiquidArchetype)
+	// with warn-and-skip semantics so infra can land before content.
 
 	if len(errs) == 0 {
 		return nil
