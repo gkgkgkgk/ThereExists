@@ -39,7 +39,7 @@ Signals decay, propogate, reflect, and refract through the universe. Signals fol
 * Infrastructure: Docker, Kubernetes, etc.
 
 ## Gameplay Loop
-The interface is a hybrid of a retro-futuristic terminal and tactile controls, designed to make the player feel like an operator, not a pilot.
+The interface is a hybrid of a retro-futuristic terminal and tactile controls, designed to make the player feel like an operator, not a pilot. The goal of the player is to get back home. While this is nearly impossible, it is really more about the journey than the destination. The basic storyline is that you were on a mission, it went wrong, you lost all contact with home, you and your ship have lost all memory of your mission, and you're alone in space. You need to survive, and maybe, just maybe, find your way back home.
 
 ### Ship Systems
 #### Scanners
@@ -81,7 +81,7 @@ Between sensors, engineering, and probes, the player can gather data and resourc
 ## Interface & Visuals
 
 ### Camera and Views
-There are three views:
+There are four views:
 1. Ship View: The player can see the ship from a third-person perspective. This view is used for manual flight and for observing their surroundings.
 2. Cockpit View: The player can see the ship from a first-person perspective. They can see out their window at the stars, and can interact with the ship's systems through a variety of controls.
 3. Controls View: The player's control panel fills the screen, and they can view sensor displays, maps, flight displays, access the OS, and more.
