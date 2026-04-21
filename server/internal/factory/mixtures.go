@@ -2,6 +2,7 @@ package factory
 
 import (
 	"fmt"
+	"log"
 	"time"
 )
 
@@ -126,20 +127,108 @@ func init() {
 		Synthetic:       true,
 	})
 
-	// Validate every registered mixture. Permissive in Phase 4: an unset
-	// IgnitionNeed is legal regardless of Hypergolic, because no content
-	// has been authored yet. Once the user fills in ignition requirements
-	// the dual-direction invariant (IgnitionNeed==nil iff Hypergolic) will
-	// be tightened — see Plan §2 Open Questions.
 	for _, m := range Mixtures {
-		if m.IgnitionNeed != nil {
-			r, ok := LookupResource(*m.IgnitionNeed)
-			if !ok {
-				panic(fmt.Sprintf("factory: mixture %q references unknown IgnitionNeed %q", m.ID, *m.IgnitionNeed))
-			}
-			if r.Category != IgnitionComponent && r.Category != Catalyst {
-				panic(fmt.Sprintf("factory: mixture %q IgnitionNeed %q has category %s (must be IgnitionComponent or Catalyst)", m.ID, r.ID, r.Category))
-			}
+		if err := m.validate(); err != nil {
+			panic(fmt.Sprintf("factory: mixture %q failed validation: %v", m.ID, err))
 		}
 	}
+}
+
+// validate enforces Phase 4.1 §4 rules. Empty-registry-safe and
+// permissive on unset synthesis fields (content is authored post-infra),
+// but strict on internal inconsistencies — a half-populated synthesis
+// declaration or a hypergolic mixture that also lists an ignition
+// resource is a contradiction, not missing content.
+func (m *Mixture) validate() error {
+	// Rule 1: Synthetic short-circuit. Every synthesis field must be
+	// zero — Synthetic means the refinery path is bypassed entirely.
+	if m.Synthetic {
+		if len(m.Precursors) != 0 {
+			return fmt.Errorf("Synthetic mixture must have empty Precursors (got %d)", len(m.Precursors))
+		}
+		if m.PowerCostPerKg != 0 {
+			return fmt.Errorf("Synthetic mixture must have PowerCostPerKg == 0 (got %v)", m.PowerCostPerKg)
+		}
+		if m.RefiningTimePerKg != 0 {
+			return fmt.Errorf("Synthetic mixture must have RefiningTimePerKg == 0 (got %v)", m.RefiningTimePerKg)
+		}
+		if m.RequiredCatalyst != "" {
+			return fmt.Errorf("Synthetic mixture must have empty RequiredCatalyst (got %q)", m.RequiredCatalyst)
+		}
+		return m.validateIgnition()
+	}
+
+	// Rule 2: Precursor category. Every entry must resolve to a
+	// WildPrecursor. Partial authoring is not legal — either fully
+	// populated or fully empty (empty is the post-Phase-4 default;
+	// content pass fills it).
+	for i, ri := range m.Precursors {
+		if ri.ResourceID == "" {
+			return fmt.Errorf("Precursors[%d] has empty ResourceID", i)
+		}
+		r, ok := LookupResource(ri.ResourceID)
+		if !ok {
+			return fmt.Errorf("Precursors[%d] unknown resource %q", i, ri.ResourceID)
+		}
+		if r.Category != WildPrecursor {
+			return fmt.Errorf("Precursors[%d] resource %q has category %s (must be WildPrecursor)", i, ri.ResourceID, r.Category)
+		}
+		if ri.QuantityPerUnitFuel <= 0 {
+			return fmt.Errorf("Precursors[%d] QuantityPerUnitFuel %v must be > 0", i, ri.QuantityPerUnitFuel)
+		}
+	}
+
+	// Rule 3: Catalyst category.
+	if m.RequiredCatalyst != "" {
+		r, ok := LookupResource(m.RequiredCatalyst)
+		if !ok {
+			return fmt.Errorf("RequiredCatalyst %q not in resource registry", m.RequiredCatalyst)
+		}
+		if r.Category != Catalyst {
+			return fmt.Errorf("RequiredCatalyst %q has category %s (must be Catalyst)", m.RequiredCatalyst, r.Category)
+		}
+	}
+
+	// Rule 4: Ignition dual-invariant. Strict on the internal
+	// contradiction (hypergolic + ignition resource is nonsense); soft
+	// on the missing-content direction (non-hypergolic with no ignition
+	// resource is legal until content lands). The soft side logs so the
+	// content pass has a concrete to-do list.
+	if err := m.validateIgnition(); err != nil {
+		return err
+	}
+	if !m.Hypergolic && m.IgnitionNeed == nil {
+		log.Printf("factory: mixture %q is non-hypergolic but has no IgnitionNeed — content pass must fill this in", m.ID)
+	}
+
+	// Rule 5: Power/time monotonicity. Claiming power without time, or
+	// time without power, is a malformed recipe.
+	hasPower := m.PowerCostPerKg > 0
+	hasTime := m.RefiningTimePerKg > 0
+	if hasPower != hasTime {
+		return fmt.Errorf("PowerCostPerKg (%v) and RefiningTimePerKg (%v) must be both zero or both non-zero",
+			m.PowerCostPerKg, m.RefiningTimePerKg)
+	}
+	return nil
+}
+
+// validateIgnition handles the strict half of the dual-invariant plus
+// category/registry resolution for a declared ignition resource.
+// Hypergolic mixtures may not declare an IgnitionNeed — they light on
+// contact; any external igniter is a declaration error.
+func (m *Mixture) validateIgnition() error {
+	if m.Hypergolic && m.IgnitionNeed != nil {
+		return fmt.Errorf("hypergolic mixture must not declare IgnitionNeed (got %q)", *m.IgnitionNeed)
+	}
+	if m.IgnitionNeed == nil {
+		return nil
+	}
+	r, ok := LookupResource(*m.IgnitionNeed)
+	if !ok {
+		return fmt.Errorf("IgnitionNeed %q not in resource registry", *m.IgnitionNeed)
+	}
+	if r.Category != IgnitionComponent && r.Category != Catalyst {
+		return fmt.Errorf("IgnitionNeed %q has category %s (must be IgnitionComponent or Catalyst)", r.ID, r.Category)
+	}
+	return nil
 }
