@@ -11,6 +11,7 @@ package refinery
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/gkgkgkgk/ThereExists/server/internal/factory"
 )
@@ -73,9 +74,9 @@ type Refinery struct {
 
 // ──────────────────────────── Validation ───────────────────────────────
 
-// Validate enforces structural invariants carried forward from Phase 4.
-// Modulation-range and cross-package reachability checks land in the
-// next commit (Phase 4.1 §4); this commit is schema-only.
+// Validate enforces Phase 4.1 §4 structural invariants on a single
+// archetype. Empty-registry-safe; cross-package reachability lives in
+// validateReachability (runs once, in init).
 func (a RefineryArchetype) Validate() error {
 	if a.Name == "" {
 		return fmt.Errorf("refinery: archetype has empty Name")
@@ -91,6 +92,95 @@ func (a RefineryArchetype) Validate() error {
 	}
 	if err := checkRange("IdlePowerDrawWRange", a.IdlePowerDrawWRange); err != nil {
 		return fmt.Errorf("refinery: archetype %q: %w", a.Name, err)
+	}
+
+	// EfficiencyRange ⊂ (0, 1]. Zero efficiency means infinite feedstock
+	// per unit of output (division by zero, practically). 1.0 is the
+	// theoretical yield ceiling.
+	if err := checkRange("EfficiencyRange", a.EfficiencyRange); err != nil {
+		return fmt.Errorf("refinery: archetype %q: %w", a.Name, err)
+	}
+	if a.EfficiencyRange[0] <= 0 || a.EfficiencyRange[1] > 1 {
+		return fmt.Errorf("refinery: archetype %q EfficiencyRange %v outside (0, 1]", a.Name, a.EfficiencyRange)
+	}
+
+	// ThroughputLimitRange[0] > 0 — a refinery that can't move any kg/hr
+	// isn't a refinery.
+	if err := checkRange("ThroughputLimitRange", a.ThroughputLimitRange); err != nil {
+		return fmt.Errorf("refinery: archetype %q: %w", a.Name, err)
+	}
+	if a.ThroughputLimitRange[0] <= 0 {
+		return fmt.Errorf("refinery: archetype %q ThroughputLimitRange lo %v must be > 0", a.Name, a.ThroughputLimitRange[0])
+	}
+
+	// HeatOutputPerWRange non-negative on both ends; zero is legal (a
+	// cold-running chemistry).
+	if err := checkRange("HeatOutputPerWRange", a.HeatOutputPerWRange); err != nil {
+		return fmt.Errorf("refinery: archetype %q: %w", a.Name, err)
+	}
+	if a.HeatOutputPerWRange[0] < 0 {
+		return fmt.Errorf("refinery: archetype %q HeatOutputPerWRange lo %v must be >= 0", a.Name, a.HeatOutputPerWRange[0])
+	}
+
+	// Gating references must resolve. Empty list is legal at schema-
+	// validation time — registration separately enforces non-empty.
+	seen := make(map[string]struct{}, len(a.SupportedMixtureIDs))
+	for i, id := range a.SupportedMixtureIDs {
+		if id == "" {
+			return fmt.Errorf("refinery: archetype %q SupportedMixtureIDs[%d] is empty", a.Name, i)
+		}
+		if _, dup := seen[id]; dup {
+			return fmt.Errorf("refinery: archetype %q SupportedMixtureIDs has duplicate %q", a.Name, id)
+		}
+		seen[id] = struct{}{}
+		if _, ok := factory.LookupMixture(id); !ok {
+			return fmt.Errorf("refinery: archetype %q SupportedMixtureIDs[%d] %q not in factory.Mixtures", a.Name, i, id)
+		}
+	}
+	return nil
+}
+
+// validateReachability runs the cross-package consistency check once,
+// after both factory.Mixtures and the refinery registry have loaded.
+// Strict half: no archetype may list a Synthetic mixture in its
+// SupportedMixtureIDs — synthetic mixtures bypass refineries entirely.
+// Soft half: every non-synthetic mixture with authored Precursors
+// should be reachable through at least one archetype; warn-only so
+// Phase 4.1 (empty refinery registry, empty mixture recipes) lands
+// clean — the content pass is what this warning will eventually catch.
+func validateReachability() error {
+	for _, a := range registeredArchetypes {
+		for _, id := range a.SupportedMixtureIDs {
+			m, ok := factory.LookupMixture(id)
+			if !ok {
+				// Already caught by Validate; belt-and-braces.
+				return fmt.Errorf("refinery: archetype %q references unknown mixture %q", a.Name, id)
+			}
+			if m.Synthetic {
+				return fmt.Errorf("refinery: archetype %q lists synthetic mixture %q (synthetics bypass refineries)", a.Name, id)
+			}
+		}
+	}
+
+	for _, m := range factory.Mixtures {
+		if m.Synthetic || len(m.Precursors) == 0 {
+			continue
+		}
+		reachable := false
+		for _, a := range registeredArchetypes {
+			for _, id := range a.SupportedMixtureIDs {
+				if id == m.ID {
+					reachable = true
+					break
+				}
+			}
+			if reachable {
+				break
+			}
+		}
+		if !reachable {
+			log.Printf("refinery: mixture %q has authored Precursors but no registered archetype supports it", m.ID)
+		}
 	}
 	return nil
 }
@@ -135,5 +225,8 @@ func init() {
 		if err := a.Validate(); err != nil {
 			panic(fmt.Sprintf("refinery: archetype %q failed validation: %v", a.Name, err))
 		}
+	}
+	if err := validateReachability(); err != nil {
+		panic(fmt.Sprintf("refinery: cross-package reachability check failed: %v", err))
 	}
 }
