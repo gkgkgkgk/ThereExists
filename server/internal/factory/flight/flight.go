@@ -91,9 +91,15 @@ func registerWithTier(slot FlightSlot, name string, gen archetypeGenerator, minT
 }
 
 // ManufacturerPicker resolves a manufacturer for a given civ + archetype.
+// previousManufacturerID is a provenance hint: when non-empty, pickers
+// that honour it (e.g. factory.PickManufacturerBiased) bias toward the
+// same manufacturer as the previous slot so a ship tends to ship as a
+// coherent kit rather than a yard-sale of vendors. Pass "" for the first
+// slot, or from any picker that ignores the hint.
+//
 // Injected so the flight package doesn't import the factory root, which
-// would close an import cycle (factory imports flight in commit 8).
-type ManufacturerPicker func(civilizationID, archetypeName string, rng *rand.Rand) (manufacturerID string, err error)
+// would close an import cycle.
+type ManufacturerPicker func(civilizationID, archetypeName, previousManufacturerID string, rng *rand.Rand) (manufacturerID string, err error)
 
 var manufacturerPicker ManufacturerPicker
 
@@ -115,21 +121,23 @@ func SetCivTechTierLookup(fn CivTechTierLookup) { civTechTierLookup = fn }
 // GenerateForSlot picks an archetype registered for the slot (filtered
 // by the civ's TechTier against each archetype's minTechTier), resolves
 // a manufacturer for the given civilization, and runs the archetype's
-// generator.
-func GenerateForSlot(slot FlightSlot, civilizationID string, rng *rand.Rand) (FlightSystem, error) {
+// generator. previousManufacturerID is passed through to the picker as
+// a provenance hint — see ManufacturerPicker. The picked manufacturer ID
+// is returned so the caller can thread it as the hint to the next slot.
+func GenerateForSlot(slot FlightSlot, civilizationID, previousManufacturerID string, rng *rand.Rand) (FlightSystem, string, error) {
 	entries := slotRegistry[slot]
 	if len(entries) == 0 {
-		return nil, ErrSlotEmpty
+		return nil, "", ErrSlotEmpty
 	}
 
 	// Filter by TechTier. Tier lookup is mandatory — missing wiring is
 	// a configuration error, not an excuse to silently ignore gates.
 	if civTechTierLookup == nil {
-		return nil, errors.New("flight: civ tech-tier lookup not configured")
+		return nil, "", errors.New("flight: civ tech-tier lookup not configured")
 	}
 	civTier, ok := civTechTierLookup(civilizationID)
 	if !ok {
-		return nil, fmt.Errorf("flight: unknown civilization %q", civilizationID)
+		return nil, "", fmt.Errorf("flight: unknown civilization %q", civilizationID)
 	}
 	eligible := make([]archetypeEntry, 0, len(entries))
 	for _, e := range entries {
@@ -138,18 +146,22 @@ func GenerateForSlot(slot FlightSlot, civilizationID string, rng *rand.Rand) (Fl
 		}
 	}
 	if len(eligible) == 0 {
-		return nil, ErrSlotEmpty
+		return nil, "", ErrSlotEmpty
 	}
 
 	// Uniform archetype pick. Rarity weights land in commit 8.
 	arch := eligible[rng.Intn(len(eligible))]
 
 	if manufacturerPicker == nil {
-		return nil, errors.New("flight: manufacturer picker not configured")
+		return nil, "", errors.New("flight: manufacturer picker not configured")
 	}
-	mfgID, err := manufacturerPicker(civilizationID, arch.archetypeName, rng)
+	mfgID, err := manufacturerPicker(civilizationID, arch.archetypeName, previousManufacturerID, rng)
 	if err != nil {
-		return nil, fmt.Errorf("pick manufacturer: %w", err)
+		return nil, "", fmt.Errorf("pick manufacturer: %w", err)
 	}
-	return arch.generate(mfgID, rng)
+	sys, err := arch.generate(mfgID, rng)
+	if err != nil {
+		return nil, "", err
+	}
+	return sys, mfgID, nil
 }

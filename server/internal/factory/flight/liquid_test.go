@@ -13,7 +13,7 @@ import (
 func rollOne(t *testing.T, seed int64) *LiquidChemicalEngine {
 	t.Helper()
 	rng := rand.New(rand.NewSource(seed))
-	mfg, err := factory.PickManufacturer(factory.GenericCivilizationID, "RCAStandard", rng)
+	mfg, err := factory.PickManufacturer(factory.GenericCivilizationID, "RCAStandard", "", rng)
 	if err != nil {
 		t.Fatalf("PickManufacturer: %v", err)
 	}

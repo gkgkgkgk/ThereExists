@@ -64,11 +64,17 @@ func GenerateRandomShip(seed int64) (*ShipLoadout, error) {
 		Flight:         map[flight.FlightSlot]any{},
 	}
 
+	// previousMfg threads the manufacturer picked for the previous slot
+	// into the next slot's picker as a provenance hint. Empty on the
+	// first slot and preserved across ErrSlotEmpty slots so a ship with
+	// Short+Far (Medium empty) still biases Far toward Short's vendor.
+	previousMfg := ""
 	for _, slot := range []flight.FlightSlot{flight.Short, flight.Medium, flight.Far} {
-		sys, err := flight.GenerateForSlot(slot, primaryCivID, rng)
+		sys, mfgID, err := flight.GenerateForSlot(slot, primaryCivID, previousMfg, rng)
 		switch {
 		case err == nil:
 			loadout.Flight[slot] = sys
+			previousMfg = mfgID
 		case errors.Is(err, flight.ErrSlotEmpty):
 			// Explicit nil so MarshalJSON emits "slot": null rather
 			// than dropping the key.
