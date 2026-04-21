@@ -1,18 +1,15 @@
-// Package refinery owns the ship-borne refinery subsystem that turns
-// wild precursors into finished propellants. Phase 4 lands only the
-// type system and an empty archetype registry — no instances are
-// authored and ShipLoadout does NOT yet carry a Refinery field.
-// Content (archetypes + their Productions) is filled in a post-infra
-// pass; see Phase 4 Plan §3.
+// Package refinery owns the ship-borne refinery subsystem. Phase 4.1
+// demotes the refinery from recipe owner to *modulator*: the recipe
+// (precursors, power, time, catalyst identity) lives on factory.Mixture;
+// the refinery contributes efficiency, throughput cap, heat output, and
+// catalyst wear state. Gating still lives here via SupportedMixtureIDs —
+// an archetype declares which chemistries it can run at all.
 //
-// Multi-level model: a mixture is produced by zero or more refinery
-// archetypes, each with its own Recipe / Catalyst / Power / Throughput
-// profile. Recipes therefore live on MixtureProduction (refinery-side),
-// NOT on factory.Mixture.
+// Registry starts empty; content (archetypes) is authored in a
+// post-infra pass. ShipLoadout does NOT yet carry a Refinery field.
 package refinery
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/gkgkgkgk/ThereExists/server/internal/factory"
@@ -20,30 +17,12 @@ import (
 
 // ──────────────────────────── Archetype ────────────────────────────────
 
-// MixtureProduction describes how one RefineryArchetype produces one
-// Mixture. The same MixtureID can appear on multiple archetypes with
-// different Recipe / Catalyst / Power / Throughput — that's the whole
-// point of the multi-level refinery design.
-type MixtureProduction struct {
-	MixtureID string
-
-	// Recipe names the WILD PRECURSOR inputs needed per kg of finished
-	// propellant. Must bottom out at WildPrecursor resources — refined
-	// chemicals are not resources and cannot appear here.
-	Recipe []factory.ResourceInput
-
-	// CatalystID is the catalyst this specific production consumes.
-	// Different productions of the same mixture can use different
-	// catalysts (and different wear rates).
-	CatalystID       factory.ResourceID
-	CatalystUsePerKg float64
-
-	PowerDrawWRange       [2]float64 // watts while this mixture is being produced
-	ThroughputKgHourRange [2]float64 // kg finished propellant per hour
-}
-
 // RefineryArchetype is a static template for a class of refinery. A
 // ship rolls one Refinery from one archetype (future Phase).
+//
+// The archetype does NOT own recipes. It declares which mixtures it
+// supports (gating) and the ranges from which its modulation scalars
+// are rolled at ship-generation time. The mixture owns the chemistry.
 type RefineryArchetype struct {
 	Name        string
 	Description string
@@ -53,15 +32,22 @@ type RefineryArchetype struct {
 	DryMassKgRange      [2]float64
 	IdlePowerDrawWRange [2]float64 // containment / thermal draw when not refining
 
-	// Productions is the full list of (mixture, recipe) pairs this
-	// archetype can produce. Non-empty for every registered archetype.
-	Productions []MixtureProduction
+	// Modulation ranges — rolled once per Refinery instance.
+	EfficiencyRange      [2]float64 // 0..1 yield multiplier applied to Mixture.Precursors
+	ThroughputLimitRange [2]float64 // hard kg/hr cap, independent of mixture
+	HeatOutputPerWRange  [2]float64 // thermal cost per watt drawn while refining
+
+	// Gating — mixture IDs this archetype is allowed to run. A mixture
+	// not in this list is refused even if the ship has the precursors.
+	// The mixture owns the recipe; this archetype owns whether it's
+	// *willing* to cook it.
+	SupportedMixtureIDs []string
 }
 
 // ──────────────────────────── Instance ─────────────────────────────────
 
-// Refinery is a concrete rolled refinery. Not produced in Phase 4 beyond
-// the type existing — no ShipLoadout field yet.
+// Refinery is a concrete rolled refinery. Not produced in Phase 4.1
+// beyond the type existing — no ShipLoadout field yet.
 type Refinery struct {
 	factory.SystemBase
 
@@ -69,24 +55,27 @@ type Refinery struct {
 	DryMassKg      float64
 	IdlePowerDrawW float64
 
-	// Productions is copied from the archetype so a persisted ship
-	// loadout is self-describing (no re-reading factory data at load).
-	Productions []MixtureProduction
+	// Modulation scalars — rolled once from the archetype's ranges.
+	Efficiency      float64 // 0..1 yield multiplier on mixture precursors
+	ThroughputLimit float64 // kg/hr cap
+	HeatOutputPerW  float64
+
+	// CatalystHealth 0..1; wears with use (runtime, later phase).
+	// The *identity* of the catalyst comes from the current Mixture;
+	// the wear state lives here because it's a property of *this
+	// refinery's* hardware, not of the chemistry.
+	CatalystHealth float64
+
+	// SupportedMixtureIDs is copied from the archetype so a persisted
+	// ship loadout is self-describing (no re-reading factory data on load).
+	SupportedMixtureIDs []string
 }
 
 // ──────────────────────────── Validation ───────────────────────────────
 
-// ErrMixtureNotAuthored signals that a production references a mixture
-// not yet present in factory.Mixtures. Returned (not panicked) so
-// infrastructure can land before content. Analogous to the relaxed
-// validator on the flight package.
-var ErrMixtureNotAuthored = errors.New("refinery: mixture not authored")
-
-// Validate enforces structural invariants. Safe on an empty archetype
-// (no Productions) only when the archetype is NOT being registered —
-// the registration path separately enforces Productions non-empty.
-// Resource / mixture lookups are empty-registry-safe: a missing
-// reference produces an error, not a panic.
+// Validate enforces structural invariants carried forward from Phase 4.
+// Modulation-range and cross-package reachability checks land in the
+// next commit (Phase 4.1 §4); this commit is schema-only.
 func (a RefineryArchetype) Validate() error {
 	if a.Name == "" {
 		return fmt.Errorf("refinery: archetype has empty Name")
@@ -103,51 +92,6 @@ func (a RefineryArchetype) Validate() error {
 	if err := checkRange("IdlePowerDrawWRange", a.IdlePowerDrawWRange); err != nil {
 		return fmt.Errorf("refinery: archetype %q: %w", a.Name, err)
 	}
-
-	for i, p := range a.Productions {
-		if p.MixtureID == "" {
-			return fmt.Errorf("refinery: archetype %q production[%d] has empty MixtureID", a.Name, i)
-		}
-		if _, ok := factory.LookupMixture(p.MixtureID); !ok {
-			return fmt.Errorf("refinery: archetype %q production[%d] mixture %q: %w", a.Name, i, p.MixtureID, ErrMixtureNotAuthored)
-		}
-		if err := checkRange("PowerDrawWRange", p.PowerDrawWRange); err != nil {
-			return fmt.Errorf("refinery: archetype %q production[%d] (%s): %w", a.Name, i, p.MixtureID, err)
-		}
-		if err := checkRange("ThroughputKgHourRange", p.ThroughputKgHourRange); err != nil {
-			return fmt.Errorf("refinery: archetype %q production[%d] (%s): %w", a.Name, i, p.MixtureID, err)
-		}
-		if p.CatalystUsePerKg < 0 {
-			return fmt.Errorf("refinery: archetype %q production[%d] (%s) CatalystUsePerKg is negative", a.Name, i, p.MixtureID)
-		}
-		// Recipe entries must resolve to WildPrecursor resources. Empty
-		// recipe is allowed at validation time (edge case) — content
-		// pass will tighten this.
-		for j, ri := range p.Recipe {
-			if ri.ResourceID == "" {
-				return fmt.Errorf("refinery: archetype %q production[%d] (%s) recipe[%d] has empty ResourceID", a.Name, i, p.MixtureID, j)
-			}
-			r, ok := factory.LookupResource(ri.ResourceID)
-			if !ok {
-				return fmt.Errorf("refinery: archetype %q production[%d] (%s) recipe[%d] unknown resource %q", a.Name, i, p.MixtureID, j, ri.ResourceID)
-			}
-			if r.Category != factory.WildPrecursor {
-				return fmt.Errorf("refinery: archetype %q production[%d] (%s) recipe[%d] resource %q has category %s (must be WildPrecursor)", a.Name, i, p.MixtureID, j, ri.ResourceID, r.Category)
-			}
-			if ri.QuantityPerUnitFuel <= 0 {
-				return fmt.Errorf("refinery: archetype %q production[%d] (%s) recipe[%d] QuantityPerUnitFuel %v must be > 0", a.Name, i, p.MixtureID, j, ri.QuantityPerUnitFuel)
-			}
-		}
-		if p.CatalystID != "" {
-			r, ok := factory.LookupResource(p.CatalystID)
-			if !ok {
-				return fmt.Errorf("refinery: archetype %q production[%d] (%s) unknown CatalystID %q", a.Name, i, p.MixtureID, p.CatalystID)
-			}
-			if r.Category != factory.Catalyst {
-				return fmt.Errorf("refinery: archetype %q production[%d] (%s) CatalystID %q has category %s (must be Catalyst)", a.Name, i, p.MixtureID, p.CatalystID, r.Category)
-			}
-		}
-	}
 	return nil
 }
 
@@ -163,12 +107,12 @@ func checkRange(name string, r [2]float64) error {
 var registeredArchetypes []RefineryArchetype
 
 // registerRefineryArchetype appends an archetype to the registry.
-// Enforces non-empty Productions at registration time (the Validate()
-// method is permissive on empty Productions so the empty-registry path
-// works cleanly during package init).
+// Enforces non-empty SupportedMixtureIDs at registration time (an
+// archetype that supports no mixtures is useless); Validate() itself
+// stays permissive so the empty-registry init path works cleanly.
 func registerRefineryArchetype(a RefineryArchetype) {
-	if len(a.Productions) == 0 {
-		panic(fmt.Sprintf("refinery: archetype %q has no Productions", a.Name))
+	if len(a.SupportedMixtureIDs) == 0 {
+		panic(fmt.Sprintf("refinery: archetype %q has no SupportedMixtureIDs", a.Name))
 	}
 	for _, existing := range registeredArchetypes {
 		if existing.Name == a.Name {
@@ -179,31 +123,14 @@ func registerRefineryArchetype(a RefineryArchetype) {
 }
 
 // Archetypes returns a read-only view of all registered refinery
-// archetypes. Empty in Phase 4.
+// archetypes. Empty in Phase 4.1.
 func Archetypes() []RefineryArchetype {
 	return registeredArchetypes
 }
 
-// SupportedMixtureIDs returns the unique mixture IDs this archetype can
-// produce. Derived from Productions.
-func (a RefineryArchetype) SupportedMixtureIDs() []string {
-	seen := make(map[string]struct{}, len(a.Productions))
-	out := make([]string, 0, len(a.Productions))
-	for _, p := range a.Productions {
-		if _, dup := seen[p.MixtureID]; dup {
-			continue
-		}
-		seen[p.MixtureID] = struct{}{}
-		out = append(out, p.MixtureID)
-	}
-	return out
-}
-
 func init() {
-	// Refinery archetype registry starts empty — content is authored in
-	// a post-infra pass. The loop below is a no-op today but wired so
-	// future additions Just Work: a bad archetype trips package init,
-	// not a random request.
+	// Registry starts empty; loop is a no-op today but wired so future
+	// additions trip init on bad data rather than a random request.
 	for _, a := range registeredArchetypes {
 		if err := a.Validate(); err != nil {
 			panic(fmt.Sprintf("refinery: archetype %q failed validation: %v", a.Name, err))
