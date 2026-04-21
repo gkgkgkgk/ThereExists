@@ -1,5 +1,7 @@
 package factory
 
+import "fmt"
+
 type Mixture struct {
 	ID              string
 	Config          PropellantConfig
@@ -8,6 +10,26 @@ type Mixture struct {
 	StorabilityDays int  // -1 = indefinite
 	Hypergolic      bool // ignites on contact → forces IgnitionMethod = Hypergolic
 	Cryogenic       bool // requires active cooling; typically caps restarts
+
+	// IgnitionNeed names the resource required to light this mixture.
+	// Nullable iff Hypergolic == true — the dual-direction invariant is
+	// documented in Phase 4 Plan §2 but NOT enforced yet (existing
+	// mixtures ship with nil and will be filled in a post-infra content
+	// pass).
+	IgnitionNeed *ResourceID
+
+	// Synthetic flags propellants without a refinery path — antimatter,
+	// exotic metastables. Synthetic mixtures are produced by civ-level
+	// infrastructure out of scope for Phase 4; no refinery is expected
+	// to list them in its Productions.
+	Synthetic bool
+}
+
+// LookupMixture returns the mixture for the given ID. Safe on an empty
+// registry.
+func LookupMixture(id string) (*Mixture, bool) {
+	m, ok := Mixtures[id]
+	return m, ok
 }
 
 // Mixtures is the hand-authored propellant registry. Kept small and
@@ -57,4 +79,21 @@ func init() {
 		Hypergolic:      false,
 		Cryogenic:       false,
 	})
+
+	// Validate every registered mixture. Permissive in Phase 4: an unset
+	// IgnitionNeed is legal regardless of Hypergolic, because no content
+	// has been authored yet. Once the user fills in ignition requirements
+	// the dual-direction invariant (IgnitionNeed==nil iff Hypergolic) will
+	// be tightened — see Plan §2 Open Questions.
+	for _, m := range Mixtures {
+		if m.IgnitionNeed != nil {
+			r, ok := LookupResource(*m.IgnitionNeed)
+			if !ok {
+				panic(fmt.Sprintf("factory: mixture %q references unknown IgnitionNeed %q", m.ID, *m.IgnitionNeed))
+			}
+			if r.Category != IgnitionComponent && r.Category != Catalyst {
+				panic(fmt.Sprintf("factory: mixture %q IgnitionNeed %q has category %s (must be IgnitionComponent or Catalyst)", m.ID, r.ID, r.Category))
+			}
+		}
+	}
 }
