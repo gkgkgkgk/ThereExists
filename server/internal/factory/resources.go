@@ -112,8 +112,65 @@ func LookupResource(id ResourceID) (*Resource, bool) {
 }
 
 func init() {
-	// Resource registry starts empty — content is authored in a post-infra pass.
-	// Validation below runs over whatever is registered; empty registry passes trivially.
+	// Wild precursors — volatiles harvested from comets, asteroids, and
+	// icy moons. QuantityPerUnitFuel in Mixture.Precursors is in the
+	// same units (kg-ish per kg of finished propellant).
+	registerResource(&Resource{
+		ID:                "H2O_ICE",
+		DisplayName:       "Water Ice",
+		Category:          WildPrecursor,
+		Phase:             Solid,
+		Commonality:       1,
+		TypicalSourceHint: "Cometary ice, outer-system moons, shadowed craters.",
+	})
+	registerResource(&Resource{
+		ID:                "CH4_ICE",
+		DisplayName:       "Methane Ice",
+		Category:          WildPrecursor,
+		Phase:             Solid,
+		Commonality:       2,
+		TypicalSourceHint: "Outer-system bodies; Titan-class moons; cold comet cores.",
+	})
+	registerResource(&Resource{
+		ID:                "NH3_ICE",
+		DisplayName:       "Ammonia Ice",
+		Category:          WildPrecursor,
+		Phase:             Solid,
+		Commonality:       3,
+		TypicalSourceHint: "Cryovolcanic moons; outer-belt cometary inclusions.",
+	})
+	registerResource(&Resource{
+		ID:                "N2_ICE",
+		DisplayName:       "Nitrogen Ice",
+		Category:          WildPrecursor,
+		Phase:             Solid,
+		Commonality:       3,
+		TypicalSourceHint: "Cold outer-system bodies; Pluto-class surfaces.",
+	})
+
+	// Ignition hardware. SPARK is a consumable chemical starter;
+	// SILVER is a catalyst bed (wears rather than is consumed, but
+	// category-wise it's still a Catalyst — IgnitionConfig treats both
+	// the same and QuantityPerStart carries the wear-vs-consume amount).
+	registerResource(&Resource{
+		ID:                "SPARK",
+		DisplayName:       "Chemical Starter Cartridge",
+		Category:          IgnitionComponent,
+		Phase:             Solid,
+		Commonality:       2,
+		TypicalSourceHint: "Standard-issue igniter stock; manufactured, not harvested.",
+	})
+	registerResource(&Resource{
+		ID:                "SILVER",
+		DisplayName:       "Silver Catalyst Bed",
+		Category:          Catalyst,
+		Phase:             Solid,
+		Commonality:       3,
+		TypicalSourceHint: "Refined silver; salvaged from asteroid-belt processing or pre-authored hardware stock.",
+	})
+
+	// Validation loop — runs over whatever is registered above; empty
+	// registry passes trivially.
 	for _, r := range Resources {
 		if r.DisplayName == "" {
 			panic(fmt.Sprintf("factory: resource %q has empty DisplayName", r.ID))
