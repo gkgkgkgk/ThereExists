@@ -118,12 +118,12 @@ func registerRelativisticArchetype(a RelativisticDriveArchetype) {
 	a.AllowedMixtureIDs = resolved
 
 	registeredRelativisticArchetypes = append(registeredRelativisticArchetypes, a)
-	register(a.FlightSlot, a.Name, func(manufacturerID string, rng *rand.Rand) (FlightSystem, error) {
+	registerWithTier(a.FlightSlot, a.Name, func(manufacturerID string, rng *rand.Rand) (FlightSystem, error) {
 		return GenerateRelativisticDrive(a, factory.GenContext{
 			ManufacturerID: manufacturerID,
 			Rng:            rng,
 		})
-	})
+	}, a.TechTier)
 }
 
 // ──────────────────────────── Generator ────────────────────────────────

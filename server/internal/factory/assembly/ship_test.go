@@ -14,6 +14,13 @@ import (
 // picker — main.go does this in production, but tests don't run main.
 func TestMain(m *testing.M) {
 	flight.SetManufacturerPicker(factory.PickManufacturer)
+	flight.SetCivTechTierLookup(func(id string) (int, bool) {
+		c, ok := factory.Civilizations[id]
+		if !ok {
+			return 0, false
+		}
+		return c.TechTier, true
+	})
 	os.Exit(m.Run())
 }
 
@@ -74,12 +81,10 @@ func TestGenerateRandomShip_JSONShape(t *testing.T) {
 	if bytes.Equal(parsed.Flight["medium"], []byte("null")) {
 		t.Error("flight.medium is null — Phase 4 registers Medium archetypes for all civs")
 	}
-	// Far: RBCA is registered (commit 5) but TechTier gating lands in
-	// commit 6. Until then every ship rolls Far regardless of civ tier.
-	// commit 6 tightens this assertion back to expecting null for tier-3
-	// civs.
-	if _, ok := parsed.Flight["far"]; !ok {
-		t.Error("flight.far missing from JSON")
+	// Far: RBCA is registered but gated to TechTier 5.
+	// GenericCivilization is tier 3, so Far stays null.
+	if !bytes.Equal(parsed.Flight["far"], []byte("null")) {
+		t.Errorf("flight.far = %s, want null (tier-3 civ, RBCA gated to tier 5)", parsed.Flight["far"])
 	}
 }
 

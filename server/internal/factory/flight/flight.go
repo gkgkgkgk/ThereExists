@@ -65,16 +65,28 @@ type archetypeGenerator func(manufacturerID string, rng *rand.Rand) (FlightSyste
 type archetypeEntry struct {
 	archetypeName string
 	generate      archetypeGenerator
+	minTechTier   int // 0 = no gate; civ must satisfy civTier >= minTechTier
 }
 
 // slotRegistry maps each flight slot to its registered archetypes.
 // Populated via register() from per-category init() funcs (e.g. liquid.go).
 var slotRegistry = map[FlightSlot][]archetypeEntry{}
 
+// register adds an archetype with no tech-tier gate. Used by liquid
+// archetypes, which are available to all civs regardless of tier.
 func register(slot FlightSlot, name string, gen archetypeGenerator) {
+	registerWithTier(slot, name, gen, 0)
+}
+
+// registerWithTier adds a tier-gated archetype. minTechTier 0 means no
+// gate; otherwise civs with TechTier < minTechTier never see this
+// archetype and their slot rolls as ErrSlotEmpty if nothing else
+// survives filtering.
+func registerWithTier(slot FlightSlot, name string, gen archetypeGenerator, minTechTier int) {
 	slotRegistry[slot] = append(slotRegistry[slot], archetypeEntry{
 		archetypeName: name,
 		generate:      gen,
+		minTechTier:   minTechTier,
 	})
 }
 
@@ -89,17 +101,48 @@ var manufacturerPicker ManufacturerPicker
 // factory root package) to wire up manufacturer resolution.
 func SetManufacturerPicker(p ManufacturerPicker) { manufacturerPicker = p }
 
-// GenerateForSlot picks an archetype registered for the slot, resolves a
-// manufacturer for the given civilization, and runs the archetype's
-// generator. Signature is locked — commit 8's ship-level code calls this
-// verbatim.
+// CivTechTierLookup returns the TechTier (1..5) for a given civ ID.
+// Injected for the same import-cycle reason as ManufacturerPicker.
+type CivTechTierLookup func(civilizationID string) (techTier int, ok bool)
+
+var civTechTierLookup CivTechTierLookup
+
+// SetCivTechTierLookup wires the civ-tier lookup at server startup. If
+// unset, GenerateForSlot treats every archetype as ungated (tier 0) and
+// returns an error so the misconfiguration is loud, not silent.
+func SetCivTechTierLookup(fn CivTechTierLookup) { civTechTierLookup = fn }
+
+// GenerateForSlot picks an archetype registered for the slot (filtered
+// by the civ's TechTier against each archetype's minTechTier), resolves
+// a manufacturer for the given civilization, and runs the archetype's
+// generator.
 func GenerateForSlot(slot FlightSlot, civilizationID string, rng *rand.Rand) (FlightSystem, error) {
 	entries := slotRegistry[slot]
 	if len(entries) == 0 {
 		return nil, ErrSlotEmpty
 	}
-	// Uniform archetype pick for Phase 3. Rarity weights come later.
-	arch := entries[rng.Intn(len(entries))]
+
+	// Filter by TechTier. Tier lookup is mandatory — missing wiring is
+	// a configuration error, not an excuse to silently ignore gates.
+	if civTechTierLookup == nil {
+		return nil, errors.New("flight: civ tech-tier lookup not configured")
+	}
+	civTier, ok := civTechTierLookup(civilizationID)
+	if !ok {
+		return nil, fmt.Errorf("flight: unknown civilization %q", civilizationID)
+	}
+	eligible := make([]archetypeEntry, 0, len(entries))
+	for _, e := range entries {
+		if e.minTechTier <= civTier {
+			eligible = append(eligible, e)
+		}
+	}
+	if len(eligible) == 0 {
+		return nil, ErrSlotEmpty
+	}
+
+	// Uniform archetype pick. Rarity weights land in commit 8.
+	arch := eligible[rng.Intn(len(eligible))]
 
 	if manufacturerPicker == nil {
 		return nil, errors.New("flight: manufacturer picker not configured")
