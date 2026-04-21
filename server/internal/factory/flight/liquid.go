@@ -29,6 +29,11 @@ type LiquidChemicalArchetype struct {
 	Description string
 	FlightSlot  FlightSlot
 
+	// Rarity is the relative archetype-selection weight inside the slot.
+	// 0 is treated as 1.0. A common workhorse is ~1.0; exotic/low-TRL
+	// options drop to 0.2–0.4 so they show up, but not routinely.
+	Rarity float64
+
 	// Group 0 — identity
 	HealthInitRange [2]float64
 	// CountRange gives the number of identical physical units in the
@@ -175,12 +180,12 @@ func registerLiquidArchetype(a LiquidChemicalArchetype) {
 	a.AllowedMixtureIDs = resolved
 
 	registeredArchetypes = append(registeredArchetypes, a)
-	register(a.FlightSlot, a.Name, func(manufacturerID string, rng *rand.Rand) (FlightSystem, error) {
+	registerFull(a.FlightSlot, a.Name, func(manufacturerID string, rng *rand.Rand) (FlightSystem, error) {
 		return GenerateLiquidChemicalEngine(a, factory.GenContext{
 			ManufacturerID: manufacturerID,
 			Rng:            rng,
 		})
-	})
+	}, 0, a.Rarity)
 }
 
 // Validate checks structural invariants on a single archetype. Plan §2

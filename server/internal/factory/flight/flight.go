@@ -65,28 +65,27 @@ type archetypeGenerator func(manufacturerID string, rng *rand.Rand) (FlightSyste
 type archetypeEntry struct {
 	archetypeName string
 	generate      archetypeGenerator
-	minTechTier   int // 0 = no gate; civ must satisfy civTier >= minTechTier
+	minTechTier   int     // 0 = no gate; civ must satisfy civTier >= minTechTier
+	rarity        float64 // > 0 relative weight; 0 is treated as 1.0 at sample time
 }
 
 // slotRegistry maps each flight slot to its registered archetypes.
 // Populated via register() from per-category init() funcs (e.g. liquid.go).
 var slotRegistry = map[FlightSlot][]archetypeEntry{}
 
-// register adds an archetype with no tech-tier gate. Used by liquid
-// archetypes, which are available to all civs regardless of tier.
-func register(slot FlightSlot, name string, gen archetypeGenerator) {
-	registerWithTier(slot, name, gen, 0)
-}
-
-// registerWithTier adds a tier-gated archetype. minTechTier 0 means no
-// gate; otherwise civs with TechTier < minTechTier never see this
-// archetype and their slot rolls as ErrSlotEmpty if nothing else
-// survives filtering.
-func registerWithTier(slot FlightSlot, name string, gen archetypeGenerator, minTechTier int) {
+// registerFull registers an archetype with the slot dispatcher.
+// minTechTier 0 means no gate; otherwise civs with TechTier <
+// minTechTier never see this archetype and their slot rolls as
+// ErrSlotEmpty if nothing else survives filtering. rarity is a
+// relative weight used by GenerateForSlot's weighted archetype pick; 0
+// is treated as 1.0 at sample time. A rarity of 0.2 means the
+// archetype is picked ~5× less often than a rarity-1.0 sibling.
+func registerFull(slot FlightSlot, name string, gen archetypeGenerator, minTechTier int, rarity float64) {
 	slotRegistry[slot] = append(slotRegistry[slot], archetypeEntry{
 		archetypeName: name,
 		generate:      gen,
 		minTechTier:   minTechTier,
+		rarity:        rarity,
 	})
 }
 
@@ -149,8 +148,29 @@ func GenerateForSlot(slot FlightSlot, civilizationID, previousManufacturerID str
 		return nil, "", ErrSlotEmpty
 	}
 
-	// Uniform archetype pick. Rarity weights land in commit 8.
-	arch := eligible[rng.Intn(len(eligible))]
+	// Weighted archetype pick. rarity 0 → treat as 1.0.
+	total := 0.0
+	for _, e := range eligible {
+		w := e.rarity
+		if w <= 0 {
+			w = 1.0
+		}
+		total += w
+	}
+	r := rng.Float64() * total
+	acc := 0.0
+	arch := eligible[len(eligible)-1]
+	for _, e := range eligible {
+		w := e.rarity
+		if w <= 0 {
+			w = 1.0
+		}
+		acc += w
+		if r < acc {
+			arch = e
+			break
+		}
+	}
 
 	if manufacturerPicker == nil {
 		return nil, "", errors.New("flight: manufacturer picker not configured")

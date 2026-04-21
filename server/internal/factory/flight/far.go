@@ -27,6 +27,10 @@ type RelativisticDriveArchetype struct {
 	// Tier gating. Phase 4 has only RBCA at TechTier 5.
 	TechTier int
 
+	// Rarity is the relative archetype-selection weight inside the slot.
+	// 0 is treated as 1.0. See LiquidChemicalArchetype.Rarity.
+	Rarity float64
+
 	HealthInitRange [2]float64
 
 	// TopSpeedFractionC is the coordinate-frame top speed as a fraction
@@ -118,12 +122,12 @@ func registerRelativisticArchetype(a RelativisticDriveArchetype) {
 	a.AllowedMixtureIDs = resolved
 
 	registeredRelativisticArchetypes = append(registeredRelativisticArchetypes, a)
-	registerWithTier(a.FlightSlot, a.Name, func(manufacturerID string, rng *rand.Rand) (FlightSystem, error) {
+	registerFull(a.FlightSlot, a.Name, func(manufacturerID string, rng *rand.Rand) (FlightSystem, error) {
 		return GenerateRelativisticDrive(a, factory.GenContext{
 			ManufacturerID: manufacturerID,
 			Rng:            rng,
 		})
-	}, a.TechTier)
+	}, a.TechTier, a.Rarity)
 }
 
 // ──────────────────────────── Generator ────────────────────────────────
