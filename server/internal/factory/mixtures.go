@@ -1,9 +1,18 @@
 package factory
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
+// Mixture is a refined propellant and its synthesis constraints. Phase
+// 4.1 promoted the recipe onto the mixture itself (was on
+// refinery.MixtureProduction in Phase 4) so one chemistry = one
+// canonical recipe; refineries modulate (efficiency, throughput) rather
+// than own alternate recipes. See Phase4_1_Plan.md §1.
 type Mixture struct {
 	ID              string
+	Description     string
 	Config          PropellantConfig
 	IspMultiplier   float64
 	DensityKgM3     float64
@@ -11,17 +20,38 @@ type Mixture struct {
 	Hypergolic      bool // ignites on contact → forces IgnitionMethod = Hypergolic
 	Cryogenic       bool // requires active cooling; typically caps restarts
 
+	// Synthesis — the "metabolic" layer. Canonical and single-path.
+	// Precursors lists WILD PRECURSOR inputs per kg of finished
+	// propellant; refineries apply Efficiency to modulate actual
+	// feedstock consumption. Refined chemicals are never resources and
+	// cannot appear here. Empty on synthetic mixtures (see Synthetic).
+	Precursors []ResourceInput
+
+	// PowerCostPerKg is the continuous watts the chemistry demands
+	// during refining. Scalar — the refinery's own power envelope is
+	// separate (idle draw, efficiency losses).
+	PowerCostPerKg float64
+
+	// RefiningTimePerKg is processed against PROPER TIME (τ, ship
+	// clock). See TE_TimeDilation.md. Duration type is load-bearing —
+	// the future runtime loop must explicitly pick τ vs t at each call
+	// site rather than drift against an ambient float clock.
+	RefiningTimePerKg time.Duration
+
+	// RequiredCatalyst is a hardware consumable that wears down as the
+	// refinery runs (wear lives on Refinery.CatalystHealth, not here).
+	// Empty string means catalyst-free chemistry.
+	RequiredCatalyst ResourceID
+
 	// IgnitionNeed names the resource required to light this mixture.
-	// Nullable iff Hypergolic == true — the dual-direction invariant is
-	// documented in Phase 4 Plan §2 but NOT enforced yet (existing
-	// mixtures ship with nil and will be filled in a post-infra content
-	// pass).
+	// Phase 4.1 tightens the invariant: must be nil iff Hypergolic.
 	IgnitionNeed *ResourceID
 
 	// Synthetic flags propellants without a refinery path — antimatter,
-	// exotic metastables. Synthetic mixtures are produced by civ-level
-	// infrastructure out of scope for Phase 4; no refinery is expected
-	// to list them in its Productions.
+	// exotic metastables. Produced by civ-level infrastructure out of
+	// scope here; no refinery should list them in SupportedMixtureIDs.
+	// All synthesis fields (Precursors, PowerCostPerKg,
+	// RefiningTimePerKg, RequiredCatalyst) must be zero when true.
 	Synthetic bool
 }
 
