@@ -80,6 +80,22 @@ func init() {
 		Cryogenic:       false,
 	})
 
+	// Matter_Antimatter_Pair — synthetic, produced by civ-level infrastructure
+	// out of scope for Phase 4. Bypasses the refinery (Synthetic: true).
+	// StorabilityDays: 0 signals continuous containment power required.
+	// IgnitionNeed stays nil until Magnetic_Trap_Assembly is authored in the
+	// content pass; post-infra the pointer will be set explicitly.
+	reg(&Mixture{
+		ID:              "Matter_Antimatter_Pair",
+		Config:          Bipropellant,
+		IspMultiplier:   1.0,
+		DensityKgM3:     100,
+		StorabilityDays: 0,
+		Hypergolic:      false,
+		Cryogenic:       true,
+		Synthetic:       true,
+	})
+
 	// Validate every registered mixture. Permissive in Phase 4: an unset
 	// IgnitionNeed is legal regardless of Hypergolic, because no content
 	// has been authored yet. Once the user fills in ignition requirements

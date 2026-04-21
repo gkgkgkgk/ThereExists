@@ -74,11 +74,12 @@ func TestGenerateRandomShip_JSONShape(t *testing.T) {
 	if bytes.Equal(parsed.Flight["medium"], []byte("null")) {
 		t.Error("flight.medium is null — Phase 4 registers Medium archetypes for all civs")
 	}
-	// Far is still null — no Far archetype registered yet (commit 5),
-	// and even once RBCA registers it gates to TechTier 5 (commit 6).
-	// GenericCivilization is tier 3.
-	if !bytes.Equal(parsed.Flight["far"], []byte("null")) {
-		t.Errorf("flight.far = %s, want null (tier-3 civ, RBCA not yet registered)", parsed.Flight["far"])
+	// Far: RBCA is registered (commit 5) but TechTier gating lands in
+	// commit 6. Until then every ship rolls Far regardless of civ tier.
+	// commit 6 tightens this assertion back to expecting null for tier-3
+	// civs.
+	if _, ok := parsed.Flight["far"]; !ok {
+		t.Error("flight.far missing from JSON")
 	}
 }
 
