@@ -11,6 +11,7 @@ import (
 	"github.com/gkgkgkgk/ThereExists/server/internal/factory"
 	"github.com/gkgkgkgk/ThereExists/server/internal/factory/flight"
 	"github.com/gkgkgkgk/ThereExists/server/internal/handlers"
+	"github.com/gkgkgkgk/ThereExists/server/internal/llm"
 	"github.com/rs/cors"
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 )
@@ -43,12 +44,22 @@ func main() {
 		return c.TechTier, true
 	})
 
+	// LLM client is optional — if OPENAI_API_KEY is missing, the civ
+	// endpoint 503s but the rest of the server still boots.
+	llmClient, err := llm.NewOpenAIClient()
+	if err != nil {
+		log.Printf("llm: %v; /api/civilizations/generate will return 503", err)
+		llmClient = nil
+	}
+
 	ph := handlers.NewPlayerHandler(database)
 	sh := handlers.NewShipHandler(database)
+	ch := handlers.NewCivilizationHandler(llmClient)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/player", ph.GetPlayer)
 	mux.HandleFunc("POST /api/ships/generate", sh.Generate)
+	mux.HandleFunc("POST /api/civilizations/generate", ch.Generate)
 	mux.HandleFunc("GET /api/health", healthCheck)
 
 	mux.Handle("GET /swagger/", httpSwagger.Handler(
