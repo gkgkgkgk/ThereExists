@@ -30,10 +30,11 @@ func validTechProfileJSON(t *testing.T) string {
 
 const validNameFlavorJSON = `{"name":"Thelassar Drift","flavor":"Quiet oceanic engineers who treat ships as living things."}`
 
+const validDescriptionJSON = `{"description":"They are a thoughtful people who build ships slowly and trust old catalysts. Their cities are terraced along thermal ridges.","design_philosophy":"ritualised conservatism; nothing unproven flies"}`
+
 func TestGenerateCivilization_HappyPath(t *testing.T) {
 	fake := &llm.FakeClient{
-		CompleteResponses:     []string{"They are a thoughtful people who build ships slowly and trust old catalysts. Their cities are terraced along thermal ridges."},
-		CompleteJSONResponses: []string{validTechProfileJSON(t), validNameFlavorJSON},
+		CompleteJSONResponses: []string{validDescriptionJSON, validTechProfileJSON(t), validNameFlavorJSON},
 	}
 
 	civ, planet, err := GenerateCivilization(context.Background(), fake, 42)
@@ -64,11 +65,14 @@ func TestGenerateCivilization_HappyPath(t *testing.T) {
 	if civ.HomeworldDescription == "" {
 		t.Error("empty HomeworldDescription")
 	}
-	if fake.CompleteCalls != 1 {
-		t.Errorf("Complete called %d times, want 1", fake.CompleteCalls)
+	if fake.CompleteCalls != 0 {
+		t.Errorf("Complete called %d times, want 0 (description is now structured)", fake.CompleteCalls)
 	}
-	if fake.CompleteJSONCalls != 2 {
-		t.Errorf("CompleteJSON called %d times, want 2", fake.CompleteJSONCalls)
+	if fake.CompleteJSONCalls != 3 {
+		t.Errorf("CompleteJSON called %d times, want 3 (description, profile, name+flavor)", fake.CompleteJSONCalls)
+	}
+	if civ.TechProfile.DesignPhilosophy == "" {
+		t.Error("empty TechProfile.DesignPhilosophy")
 	}
 }
 
@@ -84,8 +88,7 @@ func TestGenerateCivilization_ValidationRetrySucceeds(t *testing.T) {
   "tech_tier": 3
 }`
 	fake := &llm.FakeClient{
-		CompleteResponses:     []string{"Desc."},
-		CompleteJSONResponses: []string{bogus, validTechProfileJSON(t), validNameFlavorJSON},
+		CompleteJSONResponses: []string{validDescriptionJSON, bogus, validTechProfileJSON(t), validNameFlavorJSON},
 	}
 
 	civ, _, err := GenerateCivilization(context.Background(), fake, 42)
@@ -95,8 +98,8 @@ func TestGenerateCivilization_ValidationRetrySucceeds(t *testing.T) {
 	if civ == nil {
 		t.Fatal("nil civ")
 	}
-	if fake.CompleteJSONCalls != 3 {
-		t.Errorf("CompleteJSON called %d times, want 3 (step 4 retry + step 5)", fake.CompleteJSONCalls)
+	if fake.CompleteJSONCalls != 4 {
+		t.Errorf("CompleteJSON called %d times, want 4 (description + step 4 retry + step 5)", fake.CompleteJSONCalls)
 	}
 }
 
@@ -110,8 +113,7 @@ func TestGenerateCivilization_ValidationHardFail(t *testing.T) {
   "tech_tier": 9
 }`
 	fake := &llm.FakeClient{
-		CompleteResponses:     []string{"Desc."},
-		CompleteJSONResponses: []string{bogus, bogus},
+		CompleteJSONResponses: []string{validDescriptionJSON, bogus, bogus},
 	}
 
 	_, _, err := GenerateCivilization(context.Background(), fake, 42)
@@ -126,14 +128,14 @@ func TestGenerateCivilization_ValidationHardFail(t *testing.T) {
 func TestGenerateCivilization_DescriptionErrorBubbles(t *testing.T) {
 	boom := errors.New("boom")
 	fake := &llm.FakeClient{
-		CompleteErrs: []error{boom},
+		CompleteJSONErrs: []error{boom},
 	}
 	_, _, err := GenerateCivilization(context.Background(), fake, 42)
 	if !errors.Is(err, boom) {
 		t.Fatalf("expected wrapped boom, got: %v", err)
 	}
-	if fake.CompleteJSONCalls != 0 {
-		t.Errorf("CompleteJSON should not have been called; got %d", fake.CompleteJSONCalls)
+	if fake.CompleteJSONCalls != 1 {
+		t.Errorf("only the description call should have fired; got %d", fake.CompleteJSONCalls)
 	}
 }
 

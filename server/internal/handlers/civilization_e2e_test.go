@@ -15,8 +15,7 @@ import (
 // proves routing, marshaling, and the pipeline agree on field names.
 func TestCivgenEndToEnd(t *testing.T) {
 	fake := &llm.FakeClient{
-		CompleteResponses:     []string{"They are quiet and patient and build their ships in caves."},
-		CompleteJSONResponses: []string{validTechProfileJSON(t), validNameFlavorJSON},
+		CompleteJSONResponses: []string{validDescriptionJSON, validTechProfileJSON(t), validNameFlavorJSON},
 	}
 	h := NewCivilizationHandler(fake)
 

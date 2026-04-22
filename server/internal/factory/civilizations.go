@@ -3,6 +3,14 @@ package factory
 // TechProfile captures a civilization's cultural/scientific preferences —
 // orthogonal to TechTier (which ladders engineering advancement).
 type TechProfile struct {
+	// DesignPhilosophy is a short phrase capturing the civ's engineering
+	// ethos — e.g. "utilitarian austerity", "baroque redundancy",
+	// "biomorphic grown-hulls", "ritualised conservatism". Generated
+	// alongside the description (step 2) and fed into step 4 so the
+	// constrained-choice LLM can reason about *why* this civ picks the
+	// cooling method / mixture / ignition it does, not just from planet
+	// conditions alone.
+	DesignPhilosophy        string
 	PreferredCoolingMethods []CoolingMethod
 	PreferredIgnitionTypes  []IgnitionMethod
 	PreferredMixtureIDs     []string

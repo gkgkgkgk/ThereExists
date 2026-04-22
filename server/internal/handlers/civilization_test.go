@@ -38,10 +38,11 @@ func validTechProfileJSON(t *testing.T) string {
 
 const validNameFlavorJSON = `{"name":"Test Civ","flavor":"A testy civilization."}`
 
+const validDescriptionJSON = `{"description":"They live in stone and think in long cycles.","design_philosophy":"austere pragmatism; overbuilt margins"}`
+
 func TestCivilizationHandler_Success(t *testing.T) {
 	fake := &llm.FakeClient{
-		CompleteResponses:     []string{"They live in stone and think in long cycles."},
-		CompleteJSONResponses: []string{validTechProfileJSON(t), validNameFlavorJSON},
+		CompleteJSONResponses: []string{validDescriptionJSON, validTechProfileJSON(t), validNameFlavorJSON},
 	}
 	h := NewCivilizationHandler(fake)
 
@@ -81,7 +82,7 @@ func TestCivilizationHandler_InvalidSeed(t *testing.T) {
 }
 
 func TestCivilizationHandler_LLMError(t *testing.T) {
-	fake := &llm.FakeClient{CompleteErrs: []error{errors.New("upstream down")}}
+	fake := &llm.FakeClient{CompleteJSONErrs: []error{errors.New("upstream down")}}
 	h := NewCivilizationHandler(fake)
 	req := httptest.NewRequest("POST", "/api/civilizations/generate?seed=7", nil)
 	rr := httptest.NewRecorder()
