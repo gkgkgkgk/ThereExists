@@ -21,13 +21,17 @@ type OpenAIClient struct {
 	defaultModel string
 }
 
-// NewOpenAIClient reads OPENAI_API_KEY from env. Returns an error if
-// missing so the server can decide whether to fatal or continue in
-// degraded mode (civ endpoint 503s; ship endpoint unaffected).
+// NewOpenAIClient reads OPENAI_KEY (or OPENAI_API_KEY as a fallback)
+// from env. Returns an error if missing so the server can decide
+// whether to fatal or continue in degraded mode (civ endpoint 503s;
+// ship endpoint unaffected).
 func NewOpenAIClient() (*OpenAIClient, error) {
-	key := os.Getenv("OPENAI_API_KEY")
+	key := os.Getenv("OPENAI_KEY")
 	if key == "" {
-		return nil, fmt.Errorf("OPENAI_API_KEY not set")
+		key = os.Getenv("OPENAI_API_KEY")
+	}
+	if key == "" {
+		return nil, fmt.Errorf("OPENAI_KEY not set")
 	}
 	return &OpenAIClient{
 		apiKey:       key,

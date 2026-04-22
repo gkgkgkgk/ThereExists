@@ -12,6 +12,7 @@ import (
 	"github.com/gkgkgkgk/ThereExists/server/internal/factory/flight"
 	"github.com/gkgkgkgk/ThereExists/server/internal/handlers"
 	"github.com/gkgkgkgk/ThereExists/server/internal/llm"
+	"github.com/joho/godotenv"
 	"github.com/rs/cors"
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 )
@@ -22,6 +23,17 @@ import (
 // @BasePath        /
 
 func main() {
+	// Load .env from the repo root (one level up from the server dir
+	// when running `go run ./cmd/server`). Silent on missing file —
+	// production uses real env vars, not a committed .env. Existing env
+	// vars take precedence over .env contents (godotenv.Load default).
+	for _, path := range []string{".env", "../.env"} {
+		if err := godotenv.Load(path); err == nil {
+			log.Printf("loaded env from %s", path)
+			break
+		}
+	}
+
 	database, err := db.Connect(os.Getenv("DATABASE_URL"))
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
