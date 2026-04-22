@@ -1,6 +1,9 @@
 package factory
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Enums shared across multiple system categories live here. Category-local
 // enums (e.g. FlightSlot) live alongside the category itself.
@@ -88,3 +91,31 @@ func (c CoolingMethod) String() string {
 }
 
 func (c CoolingMethod) MarshalText() ([]byte, error) { return []byte(c.String()), nil }
+
+// AllCoolingMethods enumerates every CoolingMethod value. Used by civgen
+// to build the constrained-choice option menu and by ParseCoolingMethod.
+var AllCoolingMethods = []CoolingMethod{Ablative, Regenerative, Radiative, Film}
+
+// AllIgnitionMethods enumerates every IgnitionMethod value.
+var AllIgnitionMethods = []IgnitionMethod{Spark, Pyrotechnic, Hypergolic, Catalytic}
+
+// ParseCoolingMethod maps the String() output back to the enum. Case-
+// insensitive to tolerate LLM casing drift.
+func ParseCoolingMethod(s string) (CoolingMethod, bool) {
+	for _, c := range AllCoolingMethods {
+		if strings.EqualFold(c.String(), s) {
+			return c, true
+		}
+	}
+	return 0, false
+}
+
+// ParseIgnitionMethod maps the String() output back to the enum.
+func ParseIgnitionMethod(s string) (IgnitionMethod, bool) {
+	for _, i := range AllIgnitionMethods {
+		if strings.EqualFold(i.String(), s) {
+			return i, true
+		}
+	}
+	return 0, false
+}
