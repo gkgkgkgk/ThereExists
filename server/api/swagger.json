@@ -8,6 +8,53 @@
     },
     "basePath": "/",
     "paths": {
+        "/api/civilizations/generate": {
+            "post": {
+                "description": "Rolls a fresh civilization via the factory LLM pipeline. Returns the civ and the planet that seeded it. No persistence.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "civilizations"
+                ],
+                "summary": "Generate a civilization",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Seed override; defaults to time-based random",
+                        "name": "seed",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "LLM model override (e.g. gpt-4o)",
+                        "name": "model",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "{ civilization, planet }",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "generation error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "OPENAI_API_KEY not configured",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/health": {
             "get": {
                 "description": "Returns \"ok\" if the server is running.",
@@ -127,8 +174,31 @@
                 "seed": {
                     "type": "integer"
                 },
-                "ship_id": {
+                "ship": {
+                    "$ref": "#/definitions/handlers.ShipResponse"
+                }
+            }
+        },
+        "handlers.ShipResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
                     "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "loadout": {
+                    "type": "object"
+                },
+                "state": {
+                    "type": "object"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "transform": {
+                    "type": "object"
                 }
             }
         }

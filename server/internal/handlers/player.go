@@ -23,9 +23,9 @@ func NewPlayerHandler(db *sql.DB) *PlayerHandler {
 
 type ShipResponse struct {
 	ID        string          `json:"id"`
-	Loadout   json.RawMessage `json:"loadout"`
-	State     json.RawMessage `json:"state"`
-	Transform json.RawMessage `json:"transform"`
+	Loadout   json.RawMessage `json:"loadout" swaggertype:"object"`
+	State     json.RawMessage `json:"state" swaggertype:"object"`
+	Transform json.RawMessage `json:"transform" swaggertype:"object"`
 	Status    string          `json:"status"`
 	CreatedAt time.Time       `json:"created_at"`
 }
