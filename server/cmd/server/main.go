@@ -35,6 +35,13 @@ func main() {
 	// Done here (not in factory/init) to keep the factory → flight edge
 	// one-way and avoid an import cycle.
 	flight.SetManufacturerPicker(factory.PickManufacturer)
+	flight.SetCivTechTierLookup(func(id string) (int, bool) {
+		c, ok := factory.Civilizations[id]
+		if !ok {
+			return 0, false
+		}
+		return c.TechTier, true
+	})
 
 	ph := handlers.NewPlayerHandler(database)
 	sh := handlers.NewShipHandler(database)

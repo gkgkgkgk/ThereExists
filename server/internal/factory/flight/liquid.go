@@ -3,6 +3,7 @@ package flight
 import (
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 
 	"github.com/gkgkgkgk/ThereExists/server/internal/factory"
@@ -24,8 +25,14 @@ import (
 // order — dependency-grouped") defines how dependent samples are drawn
 // so no post-hoc clamping is needed.
 type LiquidChemicalArchetype struct {
-	Name       string
-	FlightSlot FlightSlot
+	Name        string
+	Description string
+	FlightSlot  FlightSlot
+
+	// Rarity is the relative archetype-selection weight inside the slot.
+	// 0 is treated as 1.0. A common workhorse is ~1.0; exotic/low-TRL
+	// options drop to 0.2–0.4 so they show up, but not routinely.
+	Rarity float64
 
 	// Group 0 — identity
 	HealthInitRange [2]float64
@@ -58,7 +65,7 @@ type LiquidChemicalArchetype struct {
 	OperatingPowerWRange [2]float64
 
 	// Group 7 — propellant
-	AllowedMixtureIDs []string
+	AllowedMixtures []*factory.Mixture
 
 	// Group 8 — operational envelope
 	MaxContinuousBurnRange          [2]float64 // s
@@ -89,7 +96,7 @@ type LiquidChemicalEngine struct {
 	PropellantConfig           factory.PropellantConfig `json:"propellant_config"`
 	IgnitionMethod             factory.IgnitionMethod   `json:"ignition_method"`
 	CoolingMethod              factory.CoolingMethod    `json:"cooling_method"`
-	MixtureID                  string                   `json:"mixture_id"`
+	Mixture                    *factory.Mixture         `json:"mixture"`
 	IgnitionPowerW             float64                  `json:"ignition_power_w"`
 	OperatingPowerW            float64                  `json:"operating_power_w"`
 	MinThrottle                float64                  `json:"min_throttle"`
@@ -146,14 +153,40 @@ func (e *LiquidChemicalEngine) Tick(dt, throttle float64) {
 // by registerLiquidArchetype() calls in liquid_archetypes.go.
 var registeredArchetypes []LiquidChemicalArchetype
 
+// registerLiquidArchetype enforces structural validation (panics on
+// failure) and then filters AllowedMixtureIDs to the subset that
+// actually resolves in factory.Mixtures. Unresolved mixtures are logged
+// as warnings — this lets Phase 4 infrastructure land before the
+// full mixture catalog is authored. An archetype whose mixture list
+// becomes empty after filtering is skipped (logged) rather than
+// registered, so the generator never picks an unusable archetype.
 func registerLiquidArchetype(a LiquidChemicalArchetype) {
+	if err := a.Validate(); err != nil {
+		panic(fmt.Sprintf("flight: archetype %q failed validation: %v", a.Name, err))
+	}
+
+	resolved := make([]*factory.Mixture, 0, len(a.AllowedMixtures))
+	for _, m := range a.AllowedMixtures {
+		// Only consider authored if it has Precursors or is explicitly Synthetic.
+		if len(m.Precursors) > 0 || m.Synthetic {
+			resolved = append(resolved, m)
+		} else {
+			log.Printf("flight: archetype %q references unauthored mixture %q — dropping reference", a.Name, m.ID)
+		}
+	}
+	if len(resolved) == 0 {
+		log.Printf("flight: archetype %q has no authored mixtures — skipping registration", a.Name)
+		return
+	}
+	a.AllowedMixtures = resolved
+
 	registeredArchetypes = append(registeredArchetypes, a)
-	register(a.FlightSlot, a.Name, func(manufacturerID string, rng *rand.Rand) (FlightSystem, error) {
+	registerFull(a.FlightSlot, a.Name, func(manufacturerID string, rng *rand.Rand) (FlightSystem, error) {
 		return GenerateLiquidChemicalEngine(a, factory.GenContext{
 			ManufacturerID: manufacturerID,
 			Rng:            rng,
 		})
-	})
+	}, 0, a.Rarity)
 }
 
 // Validate checks structural invariants on a single archetype. Plan §2
@@ -198,12 +231,9 @@ func (a LiquidChemicalArchetype) Validate() error {
 		"GimbalEligibleMassKg below DryMassRange.lo makes gimbal gating dead code")
 
 	check(len(a.AllowedCoolingMethods) > 0, "AllowedCoolingMethods must be non-empty")
-	check(len(a.AllowedMixtureIDs) > 0, "AllowedMixtureIDs must be non-empty")
-	for _, id := range a.AllowedMixtureIDs {
-		if _, ok := factory.Mixtures[id]; !ok {
-			errs = append(errs, fmt.Errorf("AllowedMixtureIDs: unknown mixture %q", id))
-		}
-	}
+	check(len(a.AllowedMixtures) > 0, "AllowedMixtures must be non-empty")
+	// Mixture-resolution is checked at registration time (registerLiquidArchetype)
+	// with warn-and-skip semantics so infra can land before content.
 
 	if len(errs) == 0 {
 		return nil
@@ -313,11 +343,8 @@ func GenerateLiquidChemicalEngine(a LiquidChemicalArchetype, ctx factory.GenCont
 	e.OperatingPowerW = factory.Uniform(a.OperatingPowerWRange[0], a.OperatingPowerWRange[1], rng)
 
 	// ── Group 7 — Propellant + ignition ───────────────────────────────
-	e.MixtureID = a.AllowedMixtureIDs[rng.Intn(len(a.AllowedMixtureIDs))]
-	mix, ok := factory.Mixtures[e.MixtureID]
-	if !ok {
-		return nil, fmt.Errorf("unknown mixture %q for archetype %q", e.MixtureID, a.Name)
-	}
+	e.Mixture = a.AllowedMixtures[rng.Intn(len(a.AllowedMixtures))]
+	mix := e.Mixture
 	e.PropellantConfig = mix.Config
 	e.IgnitionMethod = deriveIgnition(mix, rng)
 	if e.IgnitionMethod == factory.Hypergolic || e.IgnitionMethod == factory.Catalytic {

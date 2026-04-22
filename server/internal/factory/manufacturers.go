@@ -65,12 +65,24 @@ func shortCode(archetype string) string {
 	return archetype
 }
 
+// SameManufacturerBias multiplies a candidate's weight when it matches
+// the manufacturer chosen for a previous slot on the same ship. Soft
+// pull, not a hard rule — a manufacturer that doesn't make the current
+// archetype (weight 0) is still passed over. Value picked so that on
+// a three-manufacturer roster with equal base weights the prior
+// manufacturer wins ~60% of the time.
+const SameManufacturerBias = 3.0
+
 // PickManufacturer implements the picker contract consumed by
 // flight.SetManufacturerPicker. Filter by civilization, weight by
 // archetype, sample. A nil or missing archetype weight defaults to 1.0.
+// If previousManufacturerID is non-empty and appears in the candidate
+// list with a positive weight, its weight is multiplied by
+// SameManufacturerBias so subsequent slots tend to come from the same
+// manufacturer (soft pull — zero-weight candidates stay excluded).
 // Exported so main.go can wire it into flight/ at startup without
 // creating a factory → flight → factory import cycle.
-func PickManufacturer(civilizationID, archetypeName string, rng *rand.Rand) (string, error) {
+func PickManufacturer(civilizationID, archetypeName, previousManufacturerID string, rng *rand.Rand) (string, error) {
 	type candidate struct {
 		id     string
 		weight float64
@@ -78,8 +90,6 @@ func PickManufacturer(civilizationID, archetypeName string, rng *rand.Rand) (str
 	var cands []candidate
 	total := 0.0
 
-	// Stable iteration order so the weighted sample is deterministic for
-	// a given rng seed.
 	ids := make([]string, 0, len(Manufacturers))
 	for id := range Manufacturers {
 		ids = append(ids, id)
@@ -99,6 +109,9 @@ func PickManufacturer(civilizationID, archetypeName string, rng *rand.Rand) (str
 		}
 		if w <= 0 {
 			continue
+		}
+		if id == previousManufacturerID {
+			w *= SameManufacturerBias
 		}
 		cands = append(cands, candidate{id, w})
 		total += w

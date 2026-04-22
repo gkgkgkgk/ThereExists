@@ -6,7 +6,10 @@
       "Bash(git checkout *)",
       "Bash(git add *)",
       "Bash(git push *)",
-      "Bash(go test *)"
+      "Bash(go test *)",
+      "Bash(go vet *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git commit *)"
     ]
   }
 }

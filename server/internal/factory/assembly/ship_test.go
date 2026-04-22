@@ -14,6 +14,13 @@ import (
 // picker — main.go does this in production, but tests don't run main.
 func TestMain(m *testing.M) {
 	flight.SetManufacturerPicker(factory.PickManufacturer)
+	flight.SetCivTechTierLookup(func(id string) (int, bool) {
+		c, ok := factory.Civilizations[id]
+		if !ok {
+			return 0, false
+		}
+		return c.TechTier, true
+	})
 	os.Exit(m.Run())
 }
 
@@ -68,14 +75,16 @@ func TestGenerateRandomShip_JSONShape(t *testing.T) {
 			t.Errorf("flight slot %q missing from JSON (must be present even when null)", slot)
 		}
 	}
-	if !bytes.Equal(parsed.Flight["medium"], []byte("null")) {
-		t.Errorf("flight.medium = %s, want null", parsed.Flight["medium"])
-	}
-	if !bytes.Equal(parsed.Flight["far"], []byte("null")) {
-		t.Errorf("flight.far = %s, want null", parsed.Flight["far"])
-	}
 	if bytes.Equal(parsed.Flight["short"], []byte("null")) {
-		t.Error("flight.short is null — Phase 3 must populate the Short slot")
+		t.Error("flight.short is null — Short must populate on every ship")
+	}
+	if bytes.Equal(parsed.Flight["medium"], []byte("null")) {
+		t.Error("flight.medium is null — Phase 4 registers Medium archetypes for all civs")
+	}
+	// Far: RBCA is registered but gated to TechTier 5.
+	// GenericCivilization is tier 3, so Far stays null.
+	if !bytes.Equal(parsed.Flight["far"], []byte("null")) {
+		t.Errorf("flight.far = %s, want null (tier-3 civ, RBCA gated to tier 5)", parsed.Flight["far"])
 	}
 }
 

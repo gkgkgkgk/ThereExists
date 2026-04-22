@@ -9,15 +9,15 @@ import (
 )
 
 // rollOne is a small helper — pick a manufacturer for GenericCivilization
-// and roll an engine from RCSLiquidChemical with the given seed.
+// and roll an engine from RCAStandard with the given seed.
 func rollOne(t *testing.T, seed int64) *LiquidChemicalEngine {
 	t.Helper()
 	rng := rand.New(rand.NewSource(seed))
-	mfg, err := factory.PickManufacturer(factory.GenericCivilizationID, "RCSLiquidChemical", rng)
+	mfg, err := factory.PickManufacturer(factory.GenericCivilizationID, "RCAStandard", "", rng)
 	if err != nil {
 		t.Fatalf("PickManufacturer: %v", err)
 	}
-	e, err := GenerateLiquidChemicalEngine(RCSLiquidChemical, factory.GenContext{
+	e, err := GenerateLiquidChemicalEngine(RCAStandard, factory.GenContext{
 		ManufacturerID: mfg,
 		Rng:            rng,
 	})
@@ -53,9 +53,9 @@ func TestDAGInvariants(t *testing.T) {
 		if e.CanThrottle != (e.MaxThrottle > e.MinThrottle) {
 			t.Fatalf("seed %d: CanThrottle=%v but min=%v max=%v", seed, e.CanThrottle, e.MinThrottle, e.MaxThrottle)
 		}
-		if (e.GimbalRangeDegrees == 0) != (e.DryMassKg < RCSLiquidChemical.GimbalEligibleMassKg) {
+		if (e.GimbalRangeDegrees == 0) != (e.DryMassKg < RCAStandard.GimbalEligibleMassKg) {
 			t.Fatalf("seed %d: gimbal gating violated — mass=%v eligible=%v gimbal=%v",
-				seed, e.DryMassKg, RCSLiquidChemical.GimbalEligibleMassKg, e.GimbalRangeDegrees)
+				seed, e.DryMassKg, RCAStandard.GimbalEligibleMassKg, e.GimbalRangeDegrees)
 		}
 		if (e.InitialAblatorMassKg > 0) != (e.CoolingMethod == factory.Ablative) {
 			t.Fatalf("seed %d: ablator mass (%v) vs cooling (%v) mismatch", seed, e.InitialAblatorMassKg, e.CoolingMethod)
@@ -85,7 +85,7 @@ func TestDAGInvariants(t *testing.T) {
 // trips the test. Hardcoded, not runtime-derived, so the test is a
 // tripwire for distribution shifts, not a self-reflecting tautology.
 func TestReachability(t *testing.T) {
-	// RCSLiquidChemical: chamber pressure 5–25 bar. Both Ablative
+	// RCAStandard: chamber pressure 5–25 bar. Both Ablative
 	// (<=150 bar) and Radiative (<=40 bar) should survive the pressure
 	// filter on every roll. Film is unconditional. So all three are
 	// reachable.
@@ -94,7 +94,7 @@ func TestReachability(t *testing.T) {
 		factory.Radiative:  false,
 		factory.Film:       false,
 	}
-	// RCSLiquidChemical.AllowedMixtureIDs = {MMH_NTO, Hydrazine}.
+	// RCAStandard.AllowedMixtures = {MMH_NTO, Hydrazine}.
 	// MMH_NTO is hypergolic → Hypergolic. Hydrazine is monopropellant
 	// → Catalytic. Spark/Pyrotechnic are not reachable here.
 	expectedIgnition := map[factory.IgnitionMethod]bool{
@@ -107,12 +107,12 @@ func TestReachability(t *testing.T) {
 		if _, ok := expectedCooling[e.CoolingMethod]; ok {
 			expectedCooling[e.CoolingMethod] = true
 		} else {
-			t.Fatalf("seed %d: unexpected cooling method %v for RCSLiquidChemical", seed, e.CoolingMethod)
+			t.Fatalf("seed %d: unexpected cooling method %v for RCAStandard", seed, e.CoolingMethod)
 		}
 		if _, ok := expectedIgnition[e.IgnitionMethod]; ok {
 			expectedIgnition[e.IgnitionMethod] = true
 		} else {
-			t.Fatalf("seed %d: unexpected ignition method %v for RCSLiquidChemical", seed, e.IgnitionMethod)
+			t.Fatalf("seed %d: unexpected ignition method %v for RCAStandard", seed, e.IgnitionMethod)
 		}
 	}
 	for m, hit := range expectedCooling {
@@ -128,7 +128,7 @@ func TestReachability(t *testing.T) {
 }
 
 // TestValidateAllRegisteredArchetypes — every archetype registered at
-// init() must pass validation. Today only RCSLiquidChemical exists; cost
+// init() must pass validation. Today only RCAStandard exists; cost
 // is nothing and this catches future misconfiguration.
 func TestValidateAllRegisteredArchetypes(t *testing.T) {
 	if len(registeredArchetypes) == 0 {

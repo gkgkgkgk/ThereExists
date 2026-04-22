@@ -40,8 +40,15 @@ func requireTestDB(t *testing.T) *sql.DB {
 func TestShipHandler_Generate_RoundTrip(t *testing.T) {
 	database := requireTestDB(t)
 
-	// Picker wiring — production does this in main.go.
+	// Picker + civ tier wiring — production does this in main.go.
 	flight.SetManufacturerPicker(factory.PickManufacturer)
+	flight.SetCivTechTierLookup(func(id string) (int, bool) {
+		c, ok := factory.Civilizations[id]
+		if !ok {
+			return 0, false
+		}
+		return c.TechTier, true
+	})
 
 	// Fresh player + ship for this test. Use the real PlayerHandler so
 	// the setup matches production creation flow.
