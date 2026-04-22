@@ -1,5 +1,7 @@
 package flight
 
+import "github.com/gkgkgkgk/ThereExists/server/internal/factory"
+
 // Relativistic-drive archetype values live here. Add new entries by
 // declaring another var below and registering it in init(). Phase 4
 // ships one archetype: RBCA, gated to TechTier 5. See Phase 4 Plan §1.
@@ -18,7 +20,7 @@ var RBCABeamCore = RelativisticDriveArchetype{
 	ThrustNRange:         [2]float64{500, 2_000},
 	OperatingPowerWRange: [2]float64{10_000, 50_000},
 
-	AllowedMixtureIDs: []string{"Matter_Antimatter_Pair"},
+	AllowedMixtures: []*factory.Mixture{&factory.Matter_Antimatter_Pair},
 
 	SignatureProfile: "gamma burst, omnidirectional — detectable across light-years",
 }

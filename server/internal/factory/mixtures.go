@@ -13,7 +13,7 @@ import (
 // physical consumption for a chemical starter, wear for a catalyst bed.
 type IgnitionConfig struct {
 	ID               string
-	ResourceID       ResourceID
+	Resource         *Resource
 	QuantityPerStart float64 // consumed (starter) or wear (catalyst) per ignition
 	Description      string
 }
@@ -60,10 +60,10 @@ type Mixture struct {
 	// site rather than drift against an ambient float clock.
 	RefiningTimePerKg time.Duration
 
-	// IgnitionID describes how the mixture is lit, referencing an ID in
-	// IgnitionConfigs. Must be empty string iff Hypergolic (dual-invariant
-	// from Phase 4.1 §4). Non-hypergolic mixtures with IgnitionID == "" log a warning.
-	IgnitionID string
+	// Ignition describes how the mixture is lit, referencing an IgnitionConfig.
+	// Must be nil iff Hypergolic (dual-invariant from Phase 4.1 §4).
+	// Non-hypergolic mixtures with Ignition == nil log a warning.
+	Ignition *IgnitionConfig
 
 	// Synthetic flags propellants without a refinery path — antimatter,
 	// exotic metastables. Produced by civ-level infrastructure out of
@@ -82,14 +82,14 @@ func LookupMixture(id string) (*Mixture, bool) {
 
 var SparkIgnition = IgnitionConfig{
 	ID:               "Spark",
-	ResourceID:       "SPARK",
+	Resource:         SPARK_RESOURCE,
 	QuantityPerStart: 1,
 	Description:      "Electric torch igniter; one chemical starter consumed per ignition.",
 }
 
 var SilverCatalystIgnition = IgnitionConfig{
 	ID:               "SilverCatalyst",
-	ResourceID:       "SILVER",
+	Resource:         SILVER,
 	QuantityPerStart: 0.0005,
 	Description:      "Silver catalyst bed; worn slightly on every decomposition start.",
 }
@@ -105,14 +105,14 @@ var Methalox = Mixture{
 	Cryogenic:       true,
 
 	Precursors: []ResourceInput{
-		{ResourceID: "CH4_ICE", QuantityPerUnitFuel: 0.8},
-		{ResourceID: "H2O_ICE", QuantityPerUnitFuel: 1.5},
+		{Resource: CH4_ICE, QuantityPerUnitFuel: 0.8},
+		{Resource: H2O_ICE, QuantityPerUnitFuel: 1.5},
 	},
 
 	PowerCostPerKg:    2500.0,
 	RefiningTimePerKg: time.Minute * 20,
 
-	IgnitionID: "Spark",
+	Ignition: &SparkIgnition,
 }
 
 var HTP_90 = Mixture{
@@ -126,7 +126,7 @@ var HTP_90 = Mixture{
 	Cryogenic:       false,
 
 	Precursors: []ResourceInput{
-		{ResourceID: "H2O_ICE", QuantityPerUnitFuel: 1.8},
+		{Resource: H2O_ICE, QuantityPerUnitFuel: 1.8},
 	},
 
 	PowerCostPerKg:    3000.0,
@@ -135,7 +135,7 @@ var HTP_90 = Mixture{
 	// Catalytic engines don't need a spark — they need the Silver
 	// catalyst bed to be intact. QuantityPerStart is wear, not
 	// consumption.
-	IgnitionID: "SilverCatalyst",
+	Ignition: &SilverCatalystIgnition,
 }
 
 var MMH_NTO = Mixture{
@@ -149,16 +149,27 @@ var MMH_NTO = Mixture{
 	Cryogenic:       false,
 
 	Precursors: []ResourceInput{
-		{ResourceID: "NH3_ICE", QuantityPerUnitFuel: 0.8},
-		{ResourceID: "N2_ICE", QuantityPerUnitFuel: 0.5},
+		{Resource: NH3_ICE, QuantityPerUnitFuel: 0.8},
+		{Resource: N2_ICE, QuantityPerUnitFuel: 0.5},
 	},
 
 	PowerCostPerKg:    1800.0,
 	RefiningTimePerKg: time.Minute * 12,
 
 	// Hypergolic: lights on contact; no external ignition.
-	IgnitionID: "",
+	Ignition: nil,
 }
+
+// Unauthored placeholders to allow direct object references before content pass.
+var Hydrazine = Mixture{ID: "Hydrazine"}
+var GlassHydrazine = Mixture{ID: "Glass-Hydrazine"}
+var Aerozine50_NTO = Mixture{ID: "Aerozine50_NTO"}
+var LOX_LH2 = Mixture{ID: "LOX_LH2"}
+var Methane_Fluorine = Mixture{ID: "Methane_Fluorine"}
+var Hydrogen_Fluorine = Mixture{ID: "Hydrogen_Fluorine"}
+var Polyphosphate_Concentrate = Mixture{ID: "Polyphosphate_Concentrate"}
+var CH3OH_Saline_Substrate = Mixture{ID: "CH3OH_Saline_Substrate"}
+var Matter_Antimatter_Pair = Mixture{ID: "Matter_Antimatter_Pair"}
 
 // Mixtures is the hand-authored propellant registry. Kept small and
 // hand-authored because mixtures propagate cross-category: an engine's
@@ -215,15 +226,11 @@ func (m *Mixture) validate() error {
 	// populated or fully empty (empty is the post-Phase-4 default;
 	// content pass fills it).
 	for i, ri := range m.Precursors {
-		if ri.ResourceID == "" {
-			return fmt.Errorf("Precursors[%d] has empty ResourceID", i)
+		if ri.Resource == nil {
+			return fmt.Errorf("Precursors[%d] has nil Resource", i)
 		}
-		r, ok := LookupResource(ri.ResourceID)
-		if !ok {
-			return fmt.Errorf("Precursors[%d] unknown resource %q", i, ri.ResourceID)
-		}
-		if r.Category != WildPrecursor {
-			return fmt.Errorf("Precursors[%d] resource %q has category %s (must be WildPrecursor)", i, ri.ResourceID, r.Category)
+		if ri.Resource.Category != WildPrecursor {
+			return fmt.Errorf("Precursors[%d] resource %q has category %s (must be WildPrecursor)", i, ri.Resource.DisplayName, ri.Resource.Category)
 		}
 		if ri.QuantityPerUnitFuel <= 0 {
 			return fmt.Errorf("Precursors[%d] QuantityPerUnitFuel %v must be > 0", i, ri.QuantityPerUnitFuel)
@@ -238,8 +245,8 @@ func (m *Mixture) validate() error {
 	if err := m.validateIgnition(); err != nil {
 		return err
 	}
-	if !m.Hypergolic && m.IgnitionID == "" {
-		log.Printf("factory: mixture %q is non-hypergolic but has no IgnitionID — content pass must fill this in", m.ID)
+	if !m.Hypergolic && m.Ignition == nil {
+		log.Printf("factory: mixture %q is non-hypergolic but has no Ignition config — content pass must fill this in", m.ID)
 	}
 
 	// Rule 5: Power/time monotonicity. Claiming power without time, or
@@ -253,19 +260,12 @@ func (m *Mixture) validate() error {
 	return nil
 }
 
-// validateIgnition handles the strict half of the dual-invariant plus
-// registry resolution for a declared IgnitionID.
-// Hypergolic mixtures may not declare an IgnitionID — they light on
+// validateIgnition handles the strict half of the dual-invariant.
+// Hypergolic mixtures may not declare an Ignition config — they light on
 // contact; any external igniter is a declaration error.
 func (m *Mixture) validateIgnition() error {
-	if m.Hypergolic && m.IgnitionID != "" {
-		return fmt.Errorf("hypergolic mixture must not declare IgnitionID (got %q)", m.IgnitionID)
-	}
-	if m.IgnitionID == "" {
-		return nil
-	}
-	if _, ok := LookupIgnitionConfig(m.IgnitionID); !ok {
-		return fmt.Errorf("IgnitionID %q not in ignition configs registry", m.IgnitionID)
+	if m.Hypergolic && m.Ignition != nil {
+		return fmt.Errorf("hypergolic mixture must not declare an Ignition config (got %q)", m.Ignition.ID)
 	}
 	return nil
 }
@@ -275,18 +275,14 @@ func (ic *IgnitionConfig) validate() error {
 	if ic.ID == "" {
 		return fmt.Errorf("empty ID")
 	}
-	if ic.ResourceID == "" {
-		return fmt.Errorf("ResourceID is empty")
+	if ic.Resource == nil {
+		return fmt.Errorf("Resource is nil")
 	}
 	if ic.QuantityPerStart <= 0 {
 		return fmt.Errorf("QuantityPerStart %v must be > 0", ic.QuantityPerStart)
 	}
-	r, ok := LookupResource(ic.ResourceID)
-	if !ok {
-		return fmt.Errorf("ResourceID %q not in resource registry", ic.ResourceID)
-	}
-	if r.Category != IgnitionComponent && r.Category != Catalyst {
-		return fmt.Errorf("ResourceID %q has category %s (must be IgnitionComponent or Catalyst)", ic.ResourceID, r.Category)
+	if ic.Resource.Category != IgnitionComponent && ic.Resource.Category != Catalyst {
+		return fmt.Errorf("Resource %q has category %s (must be IgnitionComponent or Catalyst)", ic.Resource.DisplayName, ic.Resource.Category)
 	}
 	return nil
 }

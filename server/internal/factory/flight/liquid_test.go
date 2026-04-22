@@ -94,7 +94,7 @@ func TestReachability(t *testing.T) {
 		factory.Radiative:  false,
 		factory.Film:       false,
 	}
-	// RCAStandard.AllowedMixtureIDs = {MMH_NTO, Hydrazine}.
+	// RCAStandard.AllowedMixtures = {MMH_NTO, Hydrazine}.
 	// MMH_NTO is hypergolic → Hypergolic. Hydrazine is monopropellant
 	// → Catalytic. Spark/Pyrotechnic are not reachable here.
 	expectedIgnition := map[factory.IgnitionMethod]bool{

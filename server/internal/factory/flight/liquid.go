@@ -65,7 +65,7 @@ type LiquidChemicalArchetype struct {
 	OperatingPowerWRange [2]float64
 
 	// Group 7 — propellant
-	AllowedMixtureIDs []string
+	AllowedMixtures []*factory.Mixture
 
 	// Group 8 — operational envelope
 	MaxContinuousBurnRange          [2]float64 // s
@@ -96,7 +96,7 @@ type LiquidChemicalEngine struct {
 	PropellantConfig           factory.PropellantConfig `json:"propellant_config"`
 	IgnitionMethod             factory.IgnitionMethod   `json:"ignition_method"`
 	CoolingMethod              factory.CoolingMethod    `json:"cooling_method"`
-	MixtureID                  string                   `json:"mixture_id"`
+	Mixture                    *factory.Mixture         `json:"mixture"`
 	IgnitionPowerW             float64                  `json:"ignition_power_w"`
 	OperatingPowerW            float64                  `json:"operating_power_w"`
 	MinThrottle                float64                  `json:"min_throttle"`
@@ -165,19 +165,20 @@ func registerLiquidArchetype(a LiquidChemicalArchetype) {
 		panic(fmt.Sprintf("flight: archetype %q failed validation: %v", a.Name, err))
 	}
 
-	resolved := make([]string, 0, len(a.AllowedMixtureIDs))
-	for _, id := range a.AllowedMixtureIDs {
-		if _, ok := factory.LookupMixture(id); ok {
-			resolved = append(resolved, id)
+	resolved := make([]*factory.Mixture, 0, len(a.AllowedMixtures))
+	for _, m := range a.AllowedMixtures {
+		// Only consider authored if it has Precursors or is explicitly Synthetic.
+		if len(m.Precursors) > 0 || m.Synthetic {
+			resolved = append(resolved, m)
 		} else {
-			log.Printf("flight: archetype %q references unauthored mixture %q — dropping reference", a.Name, id)
+			log.Printf("flight: archetype %q references unauthored mixture %q — dropping reference", a.Name, m.ID)
 		}
 	}
 	if len(resolved) == 0 {
-		log.Printf("flight: archetype %q has no resolved mixtures — skipping registration", a.Name)
+		log.Printf("flight: archetype %q has no authored mixtures — skipping registration", a.Name)
 		return
 	}
-	a.AllowedMixtureIDs = resolved
+	a.AllowedMixtures = resolved
 
 	registeredArchetypes = append(registeredArchetypes, a)
 	registerFull(a.FlightSlot, a.Name, func(manufacturerID string, rng *rand.Rand) (FlightSystem, error) {
@@ -230,7 +231,7 @@ func (a LiquidChemicalArchetype) Validate() error {
 		"GimbalEligibleMassKg below DryMassRange.lo makes gimbal gating dead code")
 
 	check(len(a.AllowedCoolingMethods) > 0, "AllowedCoolingMethods must be non-empty")
-	check(len(a.AllowedMixtureIDs) > 0, "AllowedMixtureIDs must be non-empty")
+	check(len(a.AllowedMixtures) > 0, "AllowedMixtures must be non-empty")
 	// Mixture-resolution is checked at registration time (registerLiquidArchetype)
 	// with warn-and-skip semantics so infra can land before content.
 
@@ -342,11 +343,8 @@ func GenerateLiquidChemicalEngine(a LiquidChemicalArchetype, ctx factory.GenCont
 	e.OperatingPowerW = factory.Uniform(a.OperatingPowerWRange[0], a.OperatingPowerWRange[1], rng)
 
 	// ── Group 7 — Propellant + ignition ───────────────────────────────
-	e.MixtureID = a.AllowedMixtureIDs[rng.Intn(len(a.AllowedMixtureIDs))]
-	mix, ok := factory.Mixtures[e.MixtureID]
-	if !ok {
-		return nil, fmt.Errorf("unknown mixture %q for archetype %q", e.MixtureID, a.Name)
-	}
+	e.Mixture = a.AllowedMixtures[rng.Intn(len(a.AllowedMixtures))]
+	mix := e.Mixture
 	e.PropellantConfig = mix.Config
 	e.IgnitionMethod = deriveIgnition(mix, rng)
 	if e.IgnitionMethod == factory.Hypergolic || e.IgnitionMethod == factory.Catalytic {

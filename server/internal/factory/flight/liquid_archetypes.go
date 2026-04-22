@@ -30,7 +30,7 @@ var RCAStandard = LiquidChemicalArchetype{
 	GimbalRangeRange:                [2]float64{0, 0},
 	IgnitionPowerWRange:             [2]float64{0, 20},
 	OperatingPowerWRange:            [2]float64{5, 50},
-	AllowedMixtureIDs:               []string{"MMH_NTO", "Hydrazine"},
+	AllowedMixtures:                 []*factory.Mixture{&factory.MMH_NTO, &factory.Hydrazine},
 	AllowedCoolingMethods:           []factory.CoolingMethod{factory.Ablative, factory.Radiative, factory.Film},
 	MaxContinuousBurnRange:          [2]float64{1, 300},
 	MaxRestarts:                     -1, // Unlimited pulses
@@ -57,7 +57,7 @@ var TCAShort = LiquidChemicalArchetype{
 	GimbalRangeRange:       [2]float64{0, 0},
 	IgnitionPowerWRange:    [2]float64{0, 10},
 	OperatingPowerWRange:   [2]float64{2, 15},
-	AllowedMixtureIDs:      []string{"Hydrazine"}, // "Hydrazine_Mono" renamed
+	AllowedMixtures:        []*factory.Mixture{&factory.Hydrazine}, // "Hydrazine_Mono" renamed
 	AllowedCoolingMethods:  []factory.CoolingMethod{factory.Radiative},
 	MaxRestarts:            -1,
 	MaxContinuousBurnRange: [2]float64{500, 2000},
@@ -82,7 +82,7 @@ var PDDPhotolytic = LiquidChemicalArchetype{
 	GimbalRangeRange:       [2]float64{0, 0},
 	IgnitionPowerWRange:    [2]float64{500, 1500},
 	OperatingPowerWRange:   [2]float64{400, 1200},
-	AllowedMixtureIDs:      []string{"Glass-Hydrazine"}, // unauthored — warn-and-skip at registration
+	AllowedMixtures:        []*factory.Mixture{&factory.GlassHydrazine}, // unauthored — warn-and-skip at registration
 	AllowedCoolingMethods:  []factory.CoolingMethod{factory.Radiative},
 	MaxRestarts:            -1,
 	MaxContinuousBurnRange: [2]float64{100, 800},
@@ -107,7 +107,7 @@ var HPFAService = LiquidChemicalArchetype{
 	GimbalRangeRange:       [2]float64{5, 15},
 	IgnitionPowerWRange:    [2]float64{0, 0}, // Hypergolic
 	OperatingPowerWRange:   [2]float64{20, 120},
-	AllowedMixtureIDs:      []string{"MMH_NTO", "Aerozine50_NTO"},
+	AllowedMixtures:        []*factory.Mixture{&factory.MMH_NTO, &factory.Aerozine50_NTO},
 	AllowedCoolingMethods:  []factory.CoolingMethod{factory.Ablative, factory.Radiative},
 	AblatorMassKgRange:     [2]float64{5, 50},
 	MaxContinuousBurnRange: [2]float64{300, 1000},
@@ -133,7 +133,7 @@ var SCTAMainline = LiquidChemicalArchetype{
 	GimbalRangeRange:       [2]float64{5, 12},
 	IgnitionPowerWRange:    [2]float64{100, 500},
 	OperatingPowerWRange:   [2]float64{50, 200},
-	AllowedMixtureIDs:      []string{"LOX_LH2", "Methalox"}, // "Hydrolox" renamed → LOX_LH2
+	AllowedMixtures:        []*factory.Mixture{&factory.LOX_LH2, &factory.Methalox}, // "Hydrolox" renamed → LOX_LH2
 	AllowedCoolingMethods:  []factory.CoolingMethod{factory.Film},
 	MaxContinuousBurnRange: [2]float64{100, 400},
 	MaxRestarts:            3,
@@ -158,7 +158,7 @@ var RDEShockwave = LiquidChemicalArchetype{
 	GimbalRangeRange:       [2]float64{3, 10},
 	IgnitionPowerWRange:    [2]float64{200, 800},
 	OperatingPowerWRange:   [2]float64{40, 150},
-	AllowedMixtureIDs:      []string{"Methane_Fluorine", "Hydrogen_Fluorine"}, // unauthored — warn-and-skip
+	AllowedMixtures:        []*factory.Mixture{&factory.Methane_Fluorine, &factory.Hydrogen_Fluorine}, // unauthored — warn-and-skip
 	AllowedCoolingMethods:  []factory.CoolingMethod{factory.Film, factory.Ablative},
 	AblatorMassKgRange:     [2]float64{5, 40},
 	MaxContinuousBurnRange: [2]float64{30, 150}, // short — vibration-limited
@@ -184,7 +184,7 @@ var SABRE = LiquidChemicalArchetype{
 	GimbalRangeRange:                [2]float64{2, 6},
 	IgnitionPowerWRange:             [2]float64{10, 50},
 	OperatingPowerWRange:            [2]float64{100, 300},
-	AllowedMixtureIDs:               []string{"Polyphosphate_Concentrate", "CH3OH_Saline_Substrate"}, // unauthored — warn-and-skip
+	AllowedMixtures:                 []*factory.Mixture{&factory.Polyphosphate_Concentrate, &factory.CH3OH_Saline_Substrate}, // unauthored — warn-and-skip
 	AllowedCoolingMethods:           []factory.CoolingMethod{factory.Radiative},
 	MaxRestarts:                     -1,
 	MaxContinuousBurnRange:          [2]float64{500, 3000},
@@ -195,7 +195,7 @@ var SABRE = LiquidChemicalArchetype{
 
 func init() {
 	// registerLiquidArchetype validates structurally (panics on failure)
-	// and then filters AllowedMixtureIDs to the resolved subset. Archetypes
+	// and then filters AllowedMixtures to the authored subset. Archetypes
 	// whose mixtures are all unauthored are logged and skipped — that's
 	// the mechanism that lets Phase 4 infra land before the user fills
 	// in the full mixture catalog.

@@ -43,7 +43,7 @@ type RelativisticDriveArchetype struct {
 	ThrustNRange         [2]float64
 	OperatingPowerWRange [2]float64
 
-	AllowedMixtureIDs []string
+	AllowedMixtures []*factory.Mixture
 
 	// SignatureProfile is flavor text in Phase 4. The scanner system
 	// (future phase) restructures this into a spectrum/intensity schema.
@@ -61,7 +61,7 @@ type RelativisticDrive struct {
 	IspVacuumSec      float64 `json:"isp_vacuum_sec"`
 	ThrustN           float64 `json:"thrust_n"`
 	OperatingPowerW   float64 `json:"operating_power_w"`
-	MixtureID         string  `json:"mixture_id"`
+	Mixture           *factory.Mixture `json:"mixture"`
 	SignatureProfile  string  `json:"signature_profile"`
 }
 
@@ -91,7 +91,7 @@ func (a RelativisticDriveArchetype) Validate() error {
 	checkRange("ThrustNRange", a.ThrustNRange)
 	checkRange("OperatingPowerWRange", a.OperatingPowerWRange)
 
-	check(len(a.AllowedMixtureIDs) > 0, "AllowedMixtureIDs must be non-empty")
+	check(len(a.AllowedMixtures) > 0, "AllowedMixtures must be non-empty")
 	check(a.SignatureProfile != "", "SignatureProfile must be non-empty (flavor stub)")
 
 	if len(errs) == 0 {
@@ -107,19 +107,19 @@ func registerRelativisticArchetype(a RelativisticDriveArchetype) {
 		panic(fmt.Sprintf("flight: Far archetype %q failed validation: %v", a.Name, err))
 	}
 
-	resolved := make([]string, 0, len(a.AllowedMixtureIDs))
-	for _, id := range a.AllowedMixtureIDs {
-		if _, ok := factory.LookupMixture(id); ok {
-			resolved = append(resolved, id)
+	resolved := make([]*factory.Mixture, 0, len(a.AllowedMixtures))
+	for _, m := range a.AllowedMixtures {
+		if len(m.Precursors) > 0 || m.Synthetic {
+			resolved = append(resolved, m)
 		} else {
-			log.Printf("flight: Far archetype %q references unauthored mixture %q — dropping reference", a.Name, id)
+			log.Printf("flight: Far archetype %q references unauthored mixture %q — dropping reference", a.Name, m.ID)
 		}
 	}
 	if len(resolved) == 0 {
-		log.Printf("flight: Far archetype %q has no resolved mixtures — skipping registration", a.Name)
+		log.Printf("flight: Far archetype %q has no authored mixtures — skipping registration", a.Name)
 		return
 	}
-	a.AllowedMixtureIDs = resolved
+	a.AllowedMixtures = resolved
 
 	registeredRelativisticArchetypes = append(registeredRelativisticArchetypes, a)
 	registerFull(a.FlightSlot, a.Name, func(manufacturerID string, rng *rand.Rand) (FlightSystem, error) {
@@ -166,7 +166,7 @@ func GenerateRelativisticDrive(a RelativisticDriveArchetype, ctx factory.GenCont
 	d.ThrustN = factory.LogUniform(a.ThrustNRange[0], a.ThrustNRange[1], rng)
 	d.OperatingPowerW = factory.LogUniform(a.OperatingPowerWRange[0], a.OperatingPowerWRange[1], rng)
 
-	d.MixtureID = a.AllowedMixtureIDs[rng.Intn(len(a.AllowedMixtureIDs))]
+	d.Mixture = a.AllowedMixtures[rng.Intn(len(a.AllowedMixtures))]
 
 	return d, nil
 }
