@@ -80,19 +80,22 @@ type ResourceInput struct {
 	QuantityPerUnitFuel float64
 }
 
-// Resources is the hand-authored resource registry. Phase 4 ships it
-// empty — content is authored in a post-infra pass. Validation below
-// is empty-registry-safe.
-var Resources = map[ResourceID]*Resource{}
+// Resources is the hand-authored resource registry. Populated via a
+// package-level variable initializer (buildResources) so entries are
+// present *before* any init() runs — the mixtures.go init calls
+// LookupResource during validation, and Go does not guarantee init()
+// ordering between files in a package. Variable initialization, by
+// contrast, always precedes init().
+var Resources = buildResources()
 
-func registerResource(r *Resource) {
+func registerResourceInto(m map[ResourceID]*Resource, r *Resource) {
 	if r == nil {
 		panic("factory: registerResource received nil")
 	}
 	if r.ID == "" {
 		panic("factory: resource has empty ID")
 	}
-	if _, dup := Resources[r.ID]; dup {
+	if _, dup := m[r.ID]; dup {
 		panic(fmt.Sprintf("factory: duplicate resource ID %q", r.ID))
 	}
 	if r.DisplayName == "" {
@@ -101,7 +104,7 @@ func registerResource(r *Resource) {
 	if r.Commonality < 1 || r.Commonality > 5 {
 		panic(fmt.Sprintf("factory: resource %q has Commonality %d outside [1,5]", r.ID, r.Commonality))
 	}
-	Resources[r.ID] = r
+	m[r.ID] = r
 }
 
 // LookupResource returns the resource for the given ID. Safe on an empty
@@ -111,11 +114,17 @@ func LookupResource(id ResourceID) (*Resource, bool) {
 	return r, ok
 }
 
-func init() {
+// buildResources populates the registry at package-variable-init time
+// (i.e. before any init() runs), so mixtures.go can LookupResource
+// during its own validation pass without depending on init() ordering.
+func buildResources() map[ResourceID]*Resource {
+	m := map[ResourceID]*Resource{}
+	reg := func(r *Resource) { registerResourceInto(m, r) }
+
 	// Wild precursors — volatiles harvested from comets, asteroids, and
 	// icy moons. QuantityPerUnitFuel in Mixture.Precursors is in the
 	// same units (kg-ish per kg of finished propellant).
-	registerResource(&Resource{
+	reg(&Resource{
 		ID:                "H2O_ICE",
 		DisplayName:       "Water Ice",
 		Category:          WildPrecursor,
@@ -123,7 +132,7 @@ func init() {
 		Commonality:       1,
 		TypicalSourceHint: "Cometary ice, outer-system moons, shadowed craters.",
 	})
-	registerResource(&Resource{
+	reg(&Resource{
 		ID:                "CH4_ICE",
 		DisplayName:       "Methane Ice",
 		Category:          WildPrecursor,
@@ -131,7 +140,7 @@ func init() {
 		Commonality:       2,
 		TypicalSourceHint: "Outer-system bodies; Titan-class moons; cold comet cores.",
 	})
-	registerResource(&Resource{
+	reg(&Resource{
 		ID:                "NH3_ICE",
 		DisplayName:       "Ammonia Ice",
 		Category:          WildPrecursor,
@@ -139,7 +148,7 @@ func init() {
 		Commonality:       3,
 		TypicalSourceHint: "Cryovolcanic moons; outer-belt cometary inclusions.",
 	})
-	registerResource(&Resource{
+	reg(&Resource{
 		ID:                "N2_ICE",
 		DisplayName:       "Nitrogen Ice",
 		Category:          WildPrecursor,
@@ -152,7 +161,7 @@ func init() {
 	// SILVER is a catalyst bed (wears rather than is consumed, but
 	// category-wise it's still a Catalyst — IgnitionConfig treats both
 	// the same and QuantityPerStart carries the wear-vs-consume amount).
-	registerResource(&Resource{
+	reg(&Resource{
 		ID:                "SPARK",
 		DisplayName:       "Chemical Starter Cartridge",
 		Category:          IgnitionComponent,
@@ -160,7 +169,7 @@ func init() {
 		Commonality:       2,
 		TypicalSourceHint: "Standard-issue igniter stock; manufactured, not harvested.",
 	})
-	registerResource(&Resource{
+	reg(&Resource{
 		ID:                "SILVER",
 		DisplayName:       "Silver Catalyst Bed",
 		Category:          Catalyst,
@@ -169,14 +178,5 @@ func init() {
 		TypicalSourceHint: "Refined silver; salvaged from asteroid-belt processing or pre-authored hardware stock.",
 	})
 
-	// Validation loop — runs over whatever is registered above; empty
-	// registry passes trivially.
-	for _, r := range Resources {
-		if r.DisplayName == "" {
-			panic(fmt.Sprintf("factory: resource %q has empty DisplayName", r.ID))
-		}
-		if r.Commonality < 1 || r.Commonality > 5 {
-			panic(fmt.Sprintf("factory: resource %q has Commonality %d outside [1,5]", r.ID, r.Commonality))
-		}
-	}
+	return m
 }

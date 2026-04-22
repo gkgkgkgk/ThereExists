@@ -52,13 +52,12 @@ type Mixture struct {
     Precursors        []ResourceInput  // wild-precursor inputs per kg output
     PowerCostPerKg    float64          // watts required during refining
     RefiningTimePerKg time.Duration    // ship-time per kg (τ, see §3)
-    RequiredCatalyst  ResourceID       // hardware consumable; wears down
 
     // Operational constraints
-    IsCryogenic      bool
-    IsHypergolic     bool
-    IgnitionResource *ResourceID       // nil iff IsHypergolic
-    Synthetic        bool              // bypasses refineries entirely
+    IsCryogenic bool
+    IsHypergolic bool
+    Ignition   *IgnitionConfig // nil iff IsHypergolic; carries ResourceID + QuantityPerStart
+    Synthetic  bool            // bypasses refineries entirely
 
     // Storability (carry-over from Phase 4; orthogonal to synthesis)
     StorabilityDays int // -1 = indefinite
@@ -109,9 +108,8 @@ type Refinery struct {
 - **`Precursors []ResourceInput`** — wild-precursor inputs only, bottoming out at `WildPrecursor`-category resources. The validator enforces this (carried forward from Phase 4's refinery validator).
 - **`PowerCostPerKg float64`** — continuous watts drawn while a kg is being processed. Scalar, not a range: the range is the refinery's business (efficiency, idle draw). The mixture declares the *chemistry's* demand.
 - **`RefiningTimePerKg time.Duration`** — the hook for time dilation (§3). Duration type, not a float, so call sites type-check the clock-frame choice.
-- **`RequiredCatalyst ResourceID`** — hardware consumable. Distinct from `Precursors`: a catalyst is *worn*, not *consumed into the product*. Enforced via resource category (`Catalyst`). Empty string means catalyst-free.
-- **`IgnitionResource *ResourceID`** — kept as a pointer to preserve the Phase 4 invariant: `IgnitionResource == nil iff IsHypergolic`. Phase 4.1 *tightens* this invariant to reject mismatches at registration time (Phase 4 was permissive; see §4).
-- **`Synthetic bool`** — carry-over. A synthetic mixture has empty `Precursors`, zero `PowerCostPerKg`, zero `RefiningTimePerKg`, no `RequiredCatalyst`. Matter/Antimatter stays synthetic. Validator treats synthetic as a complete bypass of the metabolic fields.
+- **`Ignition *IgnitionConfig`** — bridges hardware parts (e.g. a silver catalyst bed) and consumables (chemical starters) under one shape: a `ResourceID` (category `IgnitionComponent` or `Catalyst`), a `QuantityPerStart` scalar (consumption for a starter, wear for a catalyst bed), and a description. Pointer preserves the dual-invariant `Ignition == nil iff IsHypergolic`. Subsumes the Phase-4-draft `RequiredCatalyst` field — a catalytic chemistry now declares its catalyst bed *as* its `Ignition.ResourceID`, with wear expressed via `QuantityPerStart`. This keeps the "worn vs consumed" distinction on the amount, not on a separate field.
+- **`Synthetic bool`** — carry-over. A synthetic mixture has empty `Precursors`, zero `PowerCostPerKg`, zero `RefiningTimePerKg`, and `Ignition == nil`. Matter/Antimatter stays synthetic. Validator treats synthetic as a complete bypass of the metabolic fields.
 
 ### What the Refinery *earns* in the trade
 
@@ -132,7 +130,7 @@ By giving up recipe ownership, the refinery gets richer modulation and clearer g
 | Phase 4 location                              | Phase 4.1 location                          |
 |-----------------------------------------------|---------------------------------------------|
 | `refinery.MixtureProduction.Recipe`           | `factory.Mixture.Precursors`                |
-| `refinery.MixtureProduction.CatalystID`       | `factory.Mixture.RequiredCatalyst`          |
+| `refinery.MixtureProduction.CatalystID`       | `factory.Mixture.Ignition` (subsumed — catalyst bed lives on the `Ignition` config for chemistries that use one) |
 | `refinery.MixtureProduction.CatalystUsePerKg` | *(dropped — catalyst wear lives on Refinery.CatalystHealth runtime state)* |
 | `refinery.MixtureProduction.PowerDrawWRange`  | `factory.Mixture.PowerCostPerKg` (scalar — range collapses; refinery's efficiency modulates) |
 | `refinery.MixtureProduction.ThroughputKgHourRange` | `refinery.RefineryArchetype.ThroughputLimitRange` (moved onto refinery — not per-mixture) |
@@ -145,9 +143,9 @@ Phase 4 shipped the refinery registry *empty*. No content has to be ported — o
 
 ### Carry-forward invariants
 
-- **Permissive on empty content.** Unset `Precursors` is legal; so is unset `RequiredCatalyst`, zero `PowerCostPerKg`, zero `RefiningTimePerKg`. Validation only fires on *present* fields. This is the same warn-and-skip / permissive-on-empty discipline that let Phase 4 infra land before content.
+- **Permissive on empty content.** Unset `Precursors` is legal; so is `Ignition == nil` on a non-hypergolic mixture (warn-only, content pass fills it), zero `PowerCostPerKg`, zero `RefiningTimePerKg`. Validation only fires on *present* fields. This is the same warn-and-skip / permissive-on-empty discipline that let Phase 4 infra land before content.
 - **Synthetic mixtures bypass all metabolic fields.** Validator short-circuits on `Synthetic == true` — none of the synthesis fields are required, and setting any of them is a validation error (inconsistent — either it's synthetic or it has a recipe).
-- **Ignition dual-invariant tightens.** Phase 4 allowed `IgnitionResource == nil` regardless of `IsHypergolic`, because no content had been authored. Phase 4.1 enforces: `IgnitionResource == nil` iff `IsHypergolic == true`. Existing Phase 4 entries that violate this get either an authored `IgnitionResource` or a `IsHypergolic: true` flag in the same commit that lands the tightened validator.
+- **Ignition dual-invariant tightens.** Phase 4 allowed `Ignition == nil` regardless of `IsHypergolic`, because no content had been authored. Phase 4.1 enforces: `Ignition == nil` iff `IsHypergolic == true`. Existing Phase 4 entries that violate this get either an authored `Ignition` or a `IsHypergolic: true` flag in the same commit that lands the tightened validator.
 - **`MixtureID` on engines still resolves via `LookupMixture`.** No engine-side change; the flight package continues to reference mixtures by ID and doesn't care that the internal shape grew.
 
 ---
@@ -177,11 +175,10 @@ All validation is at package-init, empty-registry-safe, and permissive on unset 
 
 For each registered mixture:
 
-1. **Synthetic short-circuit.** If `Synthetic == true`, assert `len(Precursors) == 0`, `PowerCostPerKg == 0`, `RefiningTimePerKg == 0`, `RequiredCatalyst == ""`. Any non-zero synthesis field on a synthetic mixture is a panic — inconsistent declaration.
+1. **Synthetic short-circuit.** If `Synthetic == true`, assert `len(Precursors) == 0`, `PowerCostPerKg == 0`, `RefiningTimePerKg == 0`. Any non-zero synthesis field on a synthetic mixture is a panic — inconsistent declaration. `Ignition` still goes through `validateIgnition` (synthetics may or may not need ignition — that's chemistry, not refinery-path).
 2. **Precursor category.** Every entry in `Precursors` must resolve to a `WildPrecursor`-category resource. `QuantityPerUnitFuel > 0`. Empty `Precursors` is legal (content pass fills it in); partially authored is not — either fully empty or all valid.
-3. **Catalyst category.** If `RequiredCatalyst != ""`, it must resolve to a `Catalyst`-category resource.
-4. **Ignition dual-invariant.** Assert `(IgnitionResource == nil) == IsHypergolic`. If `IgnitionResource != nil`, it must resolve and have category `IgnitionComponent` or `Catalyst`.
-5. **Power / time monotonicity.** If `PowerCostPerKg > 0` then `RefiningTimePerKg > 0` and vice versa. A mixture that claims power but no time (or time but no power) is nonsense.
+3. **Ignition dual-invariant + shape.** Assert `(Ignition == nil) == IsHypergolic`. If `Ignition != nil`: `ResourceID` non-empty, `QuantityPerStart > 0`, resource resolves, category is `IgnitionComponent` or `Catalyst`. The catalyst case absorbs what the Phase-4 draft called `RequiredCatalyst`.
+4. **Power / time monotonicity.** If `PowerCostPerKg > 0` then `RefiningTimePerKg > 0` and vice versa. A mixture that claims power but no time (or time but no power) is nonsense.
 
 ### `refinery.RefineryArchetype` validator
 
@@ -217,8 +214,8 @@ The following are explicitly *not* Phase 4.1:
 
 Targeted as a short sequence — the architectural work is schema-shaped, not algorithmic.
 
-1. **`factory: add metabolic synthesis fields to Mixture`** — extend `factory.Mixture` with `Precursors`, `PowerCostPerKg`, `RefiningTimePerKg`, `RequiredCatalyst`. All zero-valued on existing entries. No validator changes yet.
-2. **`factory: tighten Mixture validator for synthesis fields`** — land §4 rules 1–5 on `factory.Mixture`. Tighten the ignition dual-invariant. Existing entries may need an `IsHypergolic` or `IgnitionResource` fix in this commit.
+1. **`factory: add metabolic synthesis fields to Mixture`** — extend `factory.Mixture` with `Precursors`, `PowerCostPerKg`, `RefiningTimePerKg`, `Ignition`. All zero-valued on existing entries. No validator changes yet.
+2. **`factory: tighten Mixture validator for synthesis fields`** — land §4 rules on `factory.Mixture`. Tighten the ignition dual-invariant. Existing entries may need an `IsHypergolic` or `Ignition` fix in this commit.
 3. **`refinery: drop MixtureProduction, promote modulation fields`** — delete `MixtureProduction`; add `EfficiencyRange`, `ThroughputLimitRange`, `HeatOutputPerWRange`, `SupportedMixtureIDs` on the archetype; add `Efficiency`, `ThroughputLimit`, `HeatOutputPerW`, `CatalystHealth`, `SupportedMixtureIDs` on the instance. Registry stays empty.
 4. **`refinery: validator for modulation + cross-package reachability check`** — land §4 rules on the archetype; land the cross-package warn-only reachability check.
 5. **`factory: bump FactoryVersion to phase4_1-v1`** — stamp the new shape. Seed-sweep test gets the new version assertion.
@@ -247,4 +244,4 @@ Phase 4.1 is done when:
 - Cross-package reachability check runs (warn-only) and produces no spurious warnings on an empty refinery registry.
 - `FactoryVersion` bumped.
 - All existing Phase 4 tests still pass; no new failures introduced by the schema change.
-- The content-pass author can sit down, fill in `Precursors` / `PowerCostPerKg` / `RefiningTimePerKg` / `RequiredCatalyst` / `IgnitionResource` on the existing mixtures and author refinery archetypes, without touching any of the schema or validator code.
+- The content-pass author can sit down, fill in `Precursors` / `PowerCostPerKg` / `RefiningTimePerKg` / `Ignition` on the existing mixtures and author refinery archetypes, without touching any of the schema or validator code.
