@@ -169,7 +169,7 @@ var Methane_Fluorine = Mixture{ID: "Methane_Fluorine"}
 var Hydrogen_Fluorine = Mixture{ID: "Hydrogen_Fluorine"}
 var Polyphosphate_Concentrate = Mixture{ID: "Polyphosphate_Concentrate"}
 var CH3OH_Saline_Substrate = Mixture{ID: "CH3OH_Saline_Substrate"}
-var Matter_Antimatter_Pair = Mixture{ID: "Matter_Antimatter_Pair"}
+var Matter_Antimatter_Pair = Mixture{ID: "Matter_Antimatter_Pair", Synthetic: true}
 
 // Mixtures is the hand-authored propellant registry. Kept small and
 // hand-authored because mixtures propagate cross-category: an engine's
