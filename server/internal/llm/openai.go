@@ -8,10 +8,26 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
 const openAIChatEndpoint = "https://api.openai.com/v1/chat/completions"
+
+// supportsCustomTemperature returns false for models that reject any
+// temperature other than the default (1). The gpt-5 family and the o1 /
+// o3 reasoning models are the known offenders — sending temperature=0.9
+// to them returns a 400. Callers omit the field when this is false.
+func supportsCustomTemperature(model string) bool {
+	m := strings.ToLower(model)
+	switch {
+	case strings.HasPrefix(m, "gpt-5"):
+		return false
+	case strings.HasPrefix(m, "o1"), strings.HasPrefix(m, "o3"):
+		return false
+	}
+	return true
+}
 
 // OpenAIClient is a minimal Chat Completions client. Phase 5 uses one
 // retry on 5xx / timeout, no streaming, no batching, no caching.
@@ -48,12 +64,15 @@ func (c *OpenAIClient) Complete(ctx context.Context, prompt string, opts ...Opti
 	}, opts)
 
 	body := chatRequest{
-		Model:       cfg.Model,
-		Temperature: cfg.Temperature,
-		MaxTokens:   cfg.MaxTokens,
+		Model:     cfg.Model,
+		MaxTokens: cfg.MaxTokens,
 		Messages: []chatMessage{
 			{Role: "user", Content: prompt},
 		},
+	}
+	if supportsCustomTemperature(cfg.Model) {
+		t := cfg.Temperature
+		body.Temperature = &t
 	}
 
 	resp, err := c.postWithRetry(ctx, body, cfg.Timeout)
@@ -85,12 +104,15 @@ func (c *OpenAIClient) CompleteJSON(ctx context.Context, prompt string, schema s
 
 	body := chatRequest{
 		Model:          cfg.Model,
-		Temperature:    cfg.Temperature,
 		MaxTokens:      cfg.MaxTokens,
 		ResponseFormat: rf,
 		Messages: []chatMessage{
 			{Role: "user", Content: prompt},
 		},
+	}
+	if supportsCustomTemperature(cfg.Model) {
+		t := cfg.Temperature
+		body.Temperature = &t
 	}
 
 	resp, err := c.postWithRetry(ctx, body, cfg.Timeout)
@@ -164,7 +186,7 @@ type chatMessage struct {
 
 type chatRequest struct {
 	Model          string        `json:"model"`
-	Temperature    float64       `json:"temperature"`
+	Temperature    *float64      `json:"temperature,omitempty"`
 	MaxTokens      int           `json:"max_tokens,omitempty"`
 	Messages       []chatMessage `json:"messages"`
 	ResponseFormat any           `json:"response_format,omitempty"`

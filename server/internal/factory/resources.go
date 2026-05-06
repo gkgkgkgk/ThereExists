@@ -92,6 +92,30 @@ var CH4_ICE = &Resource{
 	TypicalSourceHint: "Outer-system bodies; Titan-class moons; cold comet cores.",
 }
 
+var MG_PERCHLORATE = &Resource{
+	DisplayName:       "Magnesium Perchlorate",
+	Category:          WildPrecursor,
+	Phase:             Solid,
+	Commonality:       4, // Less common than H2O, but localized
+	TypicalSourceHint: "Hyper-arid planetary regolith; evaporite basins on Jovian moons.",
+}
+
+var FLUORITE_ORE = &Resource{
+	DisplayName:       "Fluorite Ore",
+	Category:          WildPrecursor,
+	Phase:             Solid,
+	Commonality:       5, // Rare!
+	TypicalSourceHint: "Deep-vein mining on tectonically active asteroids; rare volcanic plumes.",
+}
+
+var HIGH_Q_SILICATES = &Resource{
+	DisplayName:       "High-Q Crystalline Silicates",
+	Category:          WildPrecursor,
+	Phase:             Solid,
+	Commonality:       1, // It's literally everywhere (Quartz/Sand)
+	TypicalSourceHint: "Exposed crystalline outcrops; quartz-rich asteroid veins.",
+}
+
 var NH3_ICE = &Resource{
 	DisplayName:       "Ammonia Ice",
 	Category:          WildPrecursor,
@@ -126,4 +150,12 @@ var SILVER = &Resource{
 	Phase:             Solid,
 	Commonality:       3,
 	TypicalSourceHint: "Refined silver; salvaged from asteroid-belt processing or pre-authored hardware stock.",
+}
+
+var CHON_ICE = &Resource{
+	DisplayName:       "CHON-Rich Ice",
+	Category:          WildPrecursor,
+	Phase:             Solid,
+	Commonality:       3,
+	TypicalSourceHint: "Dark-red 'Tholin' crusts on outer-system comets; organic-rich planetesimals.",
 }

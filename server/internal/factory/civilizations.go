@@ -16,6 +16,20 @@ type TechProfile struct {
 	PreferredMixtureIDs     []string
 	AversionToCryogenics    float64
 	FarDriveFamily          string
+
+	// RiskTolerance is in [0, 1]. 0 = ultra-conservative (only proven
+	// archetypes, fully-healthy starting parts, no exotic chemistry).
+	// 1 = experimental (accepts fragile/rare archetypes, lower starting
+	// health, novel mixtures). Used by ship generation to weight
+	// archetype rarity and seed the HealthInitRange roll.
+	RiskTolerance float64
+
+	// ThrustVsIspPreference is in [-1, 1]. -1 = punchy short bursts
+	// (high T/W, low Isp — RDE, RCS-heavy). +1 = efficient long burns
+	// (high Isp, lower T/W — SCTA, ion-adjacent). 0 = balanced.
+	// Biases archetype selection among equally-valid candidates in a
+	// slot.
+	ThrustVsIspPreference float64
 }
 
 // Civilization describes a generated society. Phase 5 adds Name,

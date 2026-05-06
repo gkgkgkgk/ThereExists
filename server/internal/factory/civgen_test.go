@@ -24,7 +24,9 @@ func validTechProfileJSON(t *testing.T) string {
   "preferred_ignition_types": ["spark"],
   "aversion_to_cryogenics": 0.2,
   "far_drive_family": "none",
-  "tech_tier": 3
+  "tech_tier": 3,
+  "risk_tolerance": 0.4,
+  "thrust_vs_isp_preference": 0.1
 }`
 }
 
@@ -85,7 +87,9 @@ func TestGenerateCivilization_ValidationRetrySucceeds(t *testing.T) {
   "preferred_ignition_types": ["spark"],
   "aversion_to_cryogenics": 0.2,
   "far_drive_family": "none",
-  "tech_tier": 3
+  "tech_tier": 3,
+  "risk_tolerance": 0.4,
+  "thrust_vs_isp_preference": 0.1
 }`
 	fake := &llm.FakeClient{
 		CompleteJSONResponses: []string{validDescriptionJSON, bogus, validTechProfileJSON(t), validNameFlavorJSON},
@@ -110,7 +114,9 @@ func TestGenerateCivilization_ValidationHardFail(t *testing.T) {
   "preferred_ignition_types": ["ablative"],
   "aversion_to_cryogenics": 1.5,
   "far_drive_family": "warp-bubble",
-  "tech_tier": 9
+  "tech_tier": 9,
+  "risk_tolerance": 1.7,
+  "thrust_vs_isp_preference": -2.0
 }`
 	fake := &llm.FakeClient{
 		CompleteJSONResponses: []string{validDescriptionJSON, bogus, bogus},
@@ -159,6 +165,8 @@ func TestValidateTechProfile_CatchesEveryField(t *testing.T) {
 		AversionToCryogenics:    0.5,
 		FarDriveFamily:          "none",
 		TechTier:                3,
+		RiskTolerance:           0.4,
+		ThrustVsIspPreference:   0.0,
 	}
 	if err := validateTechProfile(good); err != nil {
 		t.Fatalf("good profile failed validation: %v", err)
@@ -176,6 +184,8 @@ func TestValidateTechProfile_CatchesEveryField(t *testing.T) {
 		{"bad ignition", func(r *techProfileResponse) { r.PreferredIgnitionTypes = []string{"ablative"} }, "ignition method"},
 		{"bad family", func(r *techProfileResponse) { r.FarDriveFamily = "warp" }, "far_drive_family"},
 		{"empty mixtures", func(r *techProfileResponse) { r.PreferredMixtureIDs = nil }, "preferred_mixture_ids"},
+		{"bad risk", func(r *techProfileResponse) { r.RiskTolerance = 1.5 }, "risk_tolerance"},
+		{"bad thrust pref", func(r *techProfileResponse) { r.ThrustVsIspPreference = -2.0 }, "thrust_vs_isp_preference"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

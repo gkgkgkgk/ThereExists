@@ -107,7 +107,7 @@ var HPFAService = LiquidChemicalArchetype{
 	GimbalRangeRange:       [2]float64{5, 15},
 	IgnitionPowerWRange:    [2]float64{0, 0}, // Hypergolic
 	OperatingPowerWRange:   [2]float64{20, 120},
-	AllowedMixtures:        []*factory.Mixture{&factory.MMH_NTO, &factory.Aerozine50_NTO},
+	AllowedMixtures:        []*factory.Mixture{&factory.MMH_NTO, &factory.Aerozine50_NTO, &factory.Silane_Ox},
 	AllowedCoolingMethods:  []factory.CoolingMethod{factory.Ablative, factory.Radiative},
 	AblatorMassKgRange:     [2]float64{5, 50},
 	MaxContinuousBurnRange: [2]float64{300, 1000},
@@ -133,7 +133,7 @@ var SCTAMainline = LiquidChemicalArchetype{
 	GimbalRangeRange:       [2]float64{5, 12},
 	IgnitionPowerWRange:    [2]float64{100, 500},
 	OperatingPowerWRange:   [2]float64{50, 200},
-	AllowedMixtures:        []*factory.Mixture{&factory.LOX_LH2, &factory.Methalox}, // "Hydrolox" renamed → LOX_LH2
+	AllowedMixtures:        []*factory.Mixture{&factory.LOX_LH2, &factory.Methalox, &factory.Silane_Ox},
 	AllowedCoolingMethods:  []factory.CoolingMethod{factory.Film},
 	MaxContinuousBurnRange: [2]float64{100, 400},
 	MaxRestarts:            3,
@@ -158,7 +158,7 @@ var RDEShockwave = LiquidChemicalArchetype{
 	GimbalRangeRange:       [2]float64{3, 10},
 	IgnitionPowerWRange:    [2]float64{200, 800},
 	OperatingPowerWRange:   [2]float64{40, 150},
-	AllowedMixtures:        []*factory.Mixture{&factory.Methane_Fluorine, &factory.Hydrogen_Fluorine}, // unauthored — warn-and-skip
+	AllowedMixtures:        []*factory.Mixture{&factory.Methane_Fluorine, &factory.Hydrogen_Fluorine, &factory.Silane_Ox}, // unauthored — warn-and-skip
 	AllowedCoolingMethods:  []factory.CoolingMethod{factory.Film, factory.Ablative},
 	AblatorMassKgRange:     [2]float64{5, 40},
 	MaxContinuousBurnRange: [2]float64{30, 150}, // short — vibration-limited

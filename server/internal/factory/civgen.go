@@ -139,7 +139,7 @@ func buildDescriptionPrompt(p *Planet) string {
 
 Return a JSON object with two fields:
 
-"description": 2–3 paragraphs. Write with a technical, almost ethnographic register — the tone of a xenologist's field report or a naval architect's survey, not fantasy prose. Cover:
+"description": 1-2 short paragraphs. Write with a technical, almost ethnographic register — the tone of a xenologist's field report or a naval architect's survey, not fantasy prose. Cover:
   - physiological or phenotypic adaptations to the planet's gravity, pressure, temperature, and atmospheric chemistry (be specific: e.g. "dense hemocyanin-based circulation", "keratinised photoreceptive patches", "ten-digit manipulators optimised for low-G fine work");
   - the material substrate of their industry — what minerals, gases, biological products, or exotic resources the planet provides cheaply and which ones they must import or synthesise;
   - the engineering mindset that emerged from those constraints (do they over-engineer because the environment punishes failure? do they iterate fast because materials are cheap? do they favour biological systems over mechanical ones?);
@@ -159,6 +159,8 @@ type techProfileResponse struct {
 	AversionToCryogenics    float64  `json:"aversion_to_cryogenics"`
 	FarDriveFamily          string   `json:"far_drive_family"`
 	TechTier                int      `json:"tech_tier"`
+	RiskTolerance           float64  `json:"risk_tolerance"`
+	ThrustVsIspPreference   float64  `json:"thrust_vs_isp_preference"`
 }
 
 // ToTechProfile converts the LLM-returned shape into the domain struct.
@@ -182,6 +184,8 @@ func (r techProfileResponse) ToTechProfile() TechProfile {
 		PreferredMixtureIDs:     r.PreferredMixtureIDs,
 		AversionToCryogenics:    r.AversionToCryogenics,
 		FarDriveFamily:          r.FarDriveFamily,
+		RiskTolerance:           r.RiskTolerance,
+		ThrustVsIspPreference:   r.ThrustVsIspPreference,
 	}
 }
 
@@ -259,6 +263,8 @@ func buildTechProfilePrompt(p *Planet, desc descriptionResponse, age int64, prio
 	b.WriteString("  aversion_to_cryogenics:    float in [0,1] — 0 means no aversion, 1 means they refuse cryogenic mixtures entirely\n")
 	b.WriteString("  far_drive_family:          one string from the Far Drive Family options above\n")
 	b.WriteString("  tech_tier:                 integer 1–5\n")
+	b.WriteString("  risk_tolerance:            float in [0,1] — 0 = ultra-conservative (only proven, well-tested archetypes; reject anything fragile or experimental), 1 = experimental (welcomes exotic detonation engines, novel chemistries, accepts ships that spawn damaged because the drive *is* the adventure). A ritualised-conservatism civ should sit near 0.1; a brutalist mass-production civ near 0.7; a baroque-redundancy civ in the middle.\n")
+	b.WriteString("  thrust_vs_isp_preference:  float in [-1,1] — -1 = punchy, short, high-thrust bursts (favours rotating-detonation, dense-impulse engines, lots of small thrusters); +1 = efficient long burns (favours staged-combustion, high-Isp ion-adjacent drives); 0 = balanced. Worlds with strong gravity wells or aggressive martial cultures skew negative; long-haul logistical civs and patient explorers skew positive.\n")
 	b.WriteString("\nOnly use IDs and enum values exactly as shown. Do not invent new ones.\n")
 
 	if priorValidationError != "" {
@@ -274,14 +280,16 @@ func techProfileSchema() string {
 	return `{
   "type": "object",
   "additionalProperties": false,
-  "required": ["preferred_mixture_ids", "preferred_cooling_methods", "preferred_ignition_types", "aversion_to_cryogenics", "far_drive_family", "tech_tier"],
+  "required": ["preferred_mixture_ids", "preferred_cooling_methods", "preferred_ignition_types", "aversion_to_cryogenics", "far_drive_family", "tech_tier", "risk_tolerance", "thrust_vs_isp_preference"],
   "properties": {
     "preferred_mixture_ids":     { "type": "array", "items": { "type": "string" } },
     "preferred_cooling_methods": { "type": "array", "items": { "type": "string" } },
     "preferred_ignition_types":  { "type": "array", "items": { "type": "string" } },
     "aversion_to_cryogenics":    { "type": "number" },
     "far_drive_family":          { "type": "string" },
-    "tech_tier":                 { "type": "integer" }
+    "tech_tier":                 { "type": "integer" },
+    "risk_tolerance":            { "type": "number" },
+    "thrust_vs_isp_preference":  { "type": "number" }
   }
 }`
 }
@@ -316,6 +324,12 @@ func validateTechProfile(r techProfileResponse) error {
 	if !slices.Contains(farDriveFamilies, r.FarDriveFamily) {
 		errs = append(errs, fmt.Sprintf("far_drive_family %q is not one of: %s", r.FarDriveFamily, strings.Join(farDriveFamilies, ", ")))
 	}
+	if r.RiskTolerance < 0 || r.RiskTolerance > 1 {
+		errs = append(errs, fmt.Sprintf("risk_tolerance %.3f is outside [0,1]", r.RiskTolerance))
+	}
+	if r.ThrustVsIspPreference < -1 || r.ThrustVsIspPreference > 1 {
+		errs = append(errs, fmt.Sprintf("thrust_vs_isp_preference %.3f is outside [-1,1]", r.ThrustVsIspPreference))
+	}
 
 	if len(errs) == 0 {
 		return nil
@@ -343,7 +357,7 @@ AGE: %d years
 TECH TIER: %d
 FAR DRIVE FAMILY: %s
 
-Name: 2–4 words, evocative, culture-appropriate. Not generic.
+Name: 1-2 words, simple and grounded. Derived like a demonym (e.g., 'Martians', 'Earthlings', 'Humans'). Avoid cheesy sci-fi tropes, apostrophes, or long compound names. You can still be creative.
 Flavor: a single sentence (max ~140 characters) suitable for a UI chip or summary line.`,
 		planet.Describe(), desc.Description, desc.DesignPhilosophy, age, profile.TechTier, profile.FarDriveFamily)
 

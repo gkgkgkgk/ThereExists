@@ -94,6 +94,13 @@ var SilverCatalystIgnition = IgnitionConfig{
 	Description:      "Silver catalyst bed; worn slightly on every decomposition start.",
 }
 
+var Bio_Scaffold_Ignition = IgnitionConfig{
+	ID:               "BioScaffold",
+	Resource:         CHON_ICE, // Find bio-gunk, grow a spark
+	QuantityPerStart: 0.001,    // "Denaturation" or biological atrophy per start
+	Description:      "Enzymatic protein scaffold refined from raw organic CHON precursors.",
+}
+
 var Methalox = Mixture{
 	ID:              "Methalox",
 	Description:     "High-performance cryogenic bipropellant. Offers superior specific impulse for mainline transit but requires active thermal management to prevent boil-off.",
@@ -160,15 +167,97 @@ var MMH_NTO = Mixture{
 	Ignition: nil,
 }
 
+var Aerozine50_NTO = Mixture{
+	ID:              "Aerozine50_NTO",
+	Description:     "A high-stability hypergolic bipropellant. The workhorse of long-term service modules due to its predictable ignition and indefinite storability.",
+	Config:          Bipropellant,
+	IspMultiplier:   1.05,
+	DensityKgM3:     1120,
+	StorabilityDays: 5000, // Almost forever
+	Hypergolic:      true,
+	Cryogenic:       false,
+
+	Precursors: []ResourceInput{
+		{Resource: NH3_ICE, QuantityPerUnitFuel: 1.1}, // For the hydrazine component
+		{Resource: N2_ICE, QuantityPerUnitFuel: 0.6},  // For the nitrogen tetroxide
+	},
+
+	PowerCostPerKg:    2000.0,
+	RefiningTimePerKg: time.Minute * 15,
+
+	Ignition: nil,
+}
+
+var Methane_Fluorine = Mixture{
+	ID:              "Methane_Fluorine",
+	Description:     "An ultra-energetic detonation mixture. Fluorine's extreme reactivity provides massive thrust-to-weight for RDE manifolds, but produces corrosive hydrogen-fluoride exhaust.",
+	Config:          Bipropellant,
+	IspMultiplier:   1.6,
+	DensityKgM3:     950,
+	StorabilityDays: 45, // Corrodes tank liners over time
+	Hypergolic:      true,
+	Cryogenic:       true,
+
+	Precursors: []ResourceInput{
+		{Resource: CH4_ICE, QuantityPerUnitFuel: 0.7},
+		{Resource: FLUORITE_ORE, QuantityPerUnitFuel: 2.2}, // High mass-loss during extraction
+	},
+
+	PowerCostPerKg:    5500.0, // Electrolyzing Fluorine is a power hog
+	RefiningTimePerKg: time.Minute * 45,
+
+	// Hypergolic = No ignition needed
+	Ignition: nil,
+}
+
+var CH3OH_Saline_Substrate = Mixture{
+	ID:              "CH3OH_Saline_Substrate",
+	Description:     "A methanol-perchlorate biogenic substrate. Utilizes Magnesium Perchlorate as a cryoprotectant and electrolyte to maintain the SABRE colony's metabolic potential in deep-space conditions.",
+	Config:          Monopropellant,
+	IspMultiplier:   1.15,
+	DensityKgM3:     1280, // Perchlorates increase fluid density
+	StorabilityDays: -1,
+	Hypergolic:      false,
+	Cryogenic:       false,
+
+	Precursors: []ResourceInput{
+		{Resource: CH4_ICE, QuantityPerUnitFuel: 0.9},        // For the Methanol
+		{Resource: MG_PERCHLORATE, QuantityPerUnitFuel: 0.3}, // For the Saline conductivity
+	},
+
+	PowerCostPerKg:    1400.0,
+	RefiningTimePerKg: time.Hour * 2, // Balancing growth and chemistry
+
+	Ignition: &Bio_Scaffold_Ignition,
+}
+
+var Silane_Ox = Mixture{
+	ID:              "Silane_Ox",
+	Description:     "Silicon-hydride bipropellant. Highly pyrophoric and easy to refine from common regolith, but the SiO2 exhaust (sand) is abrasive to nozzle geometry.",
+	Config:          Bipropellant,
+	IspMultiplier:   0.9, // Low performance, but 'infinite' ammo
+	DensityKgM3:     1050,
+	StorabilityDays: 365,
+	Hypergolic:      true, // Ignites on contact with LOX
+	Cryogenic:       true, // Oxygen component must be kept cold
+
+	Precursors: []ResourceInput{
+		{Resource: HIGH_Q_SILICATES, QuantityPerUnitFuel: 1.5},
+		{Resource: H2O_ICE, QuantityPerUnitFuel: 1.0}, // For the Oxygen oxidizer
+	},
+
+	PowerCostPerKg:    4000.0, // Refining Silicon takes a lot of juice
+	RefiningTimePerKg: time.Minute * 20,
+
+	Ignition: nil,
+}
+
 // Unauthored placeholders to allow direct object references before content pass.
 var Hydrazine = Mixture{ID: "Hydrazine"}
 var GlassHydrazine = Mixture{ID: "Glass-Hydrazine"}
-var Aerozine50_NTO = Mixture{ID: "Aerozine50_NTO"}
 var LOX_LH2 = Mixture{ID: "LOX_LH2"}
-var Methane_Fluorine = Mixture{ID: "Methane_Fluorine"}
 var Hydrogen_Fluorine = Mixture{ID: "Hydrogen_Fluorine"}
 var Polyphosphate_Concentrate = Mixture{ID: "Polyphosphate_Concentrate"}
-var CH3OH_Saline_Substrate = Mixture{ID: "CH3OH_Saline_Substrate"}
 var Matter_Antimatter_Pair = Mixture{ID: "Matter_Antimatter_Pair", Synthetic: true}
 
 // Mixtures is the hand-authored propellant registry. Kept small and
@@ -192,6 +281,16 @@ func init() {
 	regM(&Methalox)
 	regM(&HTP_90)
 	regM(&MMH_NTO)
+	regM(&Aerozine50_NTO)
+	regM(&Methane_Fluorine)
+	regM(&CH3OH_Saline_Substrate)
+	regM(&Silane_Ox)
+	regM(&Hydrazine)
+	regM(&GlassHydrazine)
+	regM(&LOX_LH2)
+	regM(&Hydrogen_Fluorine)
+	regM(&Polyphosphate_Concentrate)
+	regM(&Matter_Antimatter_Pair)
 
 	for _, m := range Mixtures {
 		if err := m.validate(); err != nil {

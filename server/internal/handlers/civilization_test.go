@@ -32,7 +32,9 @@ func validTechProfileJSON(t *testing.T) string {
   "preferred_ignition_types": ["spark"],
   "aversion_to_cryogenics": 0.2,
   "far_drive_family": "none",
-  "tech_tier": 3
+  "tech_tier": 3,
+  "risk_tolerance": 0.4,
+  "thrust_vs_isp_preference": 0.1
 }`
 }
 
