@@ -10,8 +10,9 @@ var RBCABeamCore = RelativisticDriveArchetype{
 	Name:        "Relativistic Beam-Core Assembly (RBCA)",
 	Description: "Matter/antimatter annihilation in a magnetic nozzle. Pushes the ship to a significant fraction of c at the cost of a gamma signature detectable across light-years. Spawns damaged — the drive is the adventure.",
 	FlightSlot:  Far,
-	TechTier:    5,
-	Rarity:      1.0,
+	TechTier:      5,
+	Rarity:        1.0,
+	ThrustIspBias: 1.0,
 
 	HealthInitRange:   [2]float64{0.40, 0.60},
 	TopSpeedFractionC: 0.85,

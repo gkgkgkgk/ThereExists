@@ -31,6 +31,10 @@ type RelativisticDriveArchetype struct {
 	// 0 is treated as 1.0. See LiquidChemicalArchetype.Rarity.
 	Rarity float64
 
+	// ThrustIspBias positions the archetype on the thrust↔Isp axis in
+	// [-1, 1]. See LiquidChemicalArchetype.ThrustIspBias.
+	ThrustIspBias float64
+
 	HealthInitRange [2]float64
 
 	// TopSpeedFractionC is the coordinate-frame top speed as a fraction
@@ -127,7 +131,7 @@ func registerRelativisticArchetype(a RelativisticDriveArchetype) {
 			ManufacturerID: manufacturerID,
 			Rng:            rng,
 		})
-	}, a.TechTier, a.Rarity)
+	}, a.TechTier, a.Rarity, a.ThrustIspBias)
 }
 
 // ──────────────────────────── Generator ────────────────────────────────

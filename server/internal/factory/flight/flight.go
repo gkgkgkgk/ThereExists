@@ -67,6 +67,12 @@ type archetypeEntry struct {
 	generate      archetypeGenerator
 	minTechTier   int     // 0 = no gate; civ must satisfy civTier >= minTechTier
 	rarity        float64 // > 0 relative weight; 0 is treated as 1.0 at sample time
+	// thrustIspBias positions the archetype on the thrust↔Isp axis,
+	// range [-1, 1]. -1 = punchy (high T/W, low Isp, e.g. RDE);
+	// +1 = efficient (high Isp, lower T/W, e.g. RBCA). Read by the
+	// civ-aware archetype weighting in commit 5; commit 4 only declares
+	// the field. Range is enforced at registration (panics on misauth).
+	thrustIspBias float64
 }
 
 // slotRegistry maps each flight slot to its registered archetypes.
@@ -80,12 +86,16 @@ var slotRegistry = map[FlightSlot][]archetypeEntry{}
 // relative weight used by GenerateForSlot's weighted archetype pick; 0
 // is treated as 1.0 at sample time. A rarity of 0.2 means the
 // archetype is picked ~5× less often than a rarity-1.0 sibling.
-func registerFull(slot FlightSlot, name string, gen archetypeGenerator, minTechTier int, rarity float64) {
+func registerFull(slot FlightSlot, name string, gen archetypeGenerator, minTechTier int, rarity, thrustIspBias float64) {
+	if thrustIspBias < -1 || thrustIspBias > 1 {
+		panic(fmt.Sprintf("flight: archetype %q ThrustIspBias %v out of [-1, 1]", name, thrustIspBias))
+	}
 	slotRegistry[slot] = append(slotRegistry[slot], archetypeEntry{
 		archetypeName: name,
 		generate:      gen,
 		minTechTier:   minTechTier,
 		rarity:        rarity,
+		thrustIspBias: thrustIspBias,
 	})
 }
 

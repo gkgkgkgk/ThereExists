@@ -34,6 +34,13 @@ type LiquidChemicalArchetype struct {
 	// options drop to 0.2–0.4 so they show up, but not routinely.
 	Rarity float64
 
+	// ThrustIspBias positions the archetype on the thrust↔Isp axis in
+	// [-1, 1]. -1 = punchy (high T/W, low Isp); +1 = efficient (high
+	// Isp, lower T/W); 0 = balanced. Read by the civ-aware archetype
+	// weighting (commit 5) — civs with a matching ThrustVsIspPreference
+	// roll this archetype more often.
+	ThrustIspBias float64
+
 	// Group 0 — identity
 	HealthInitRange [2]float64
 	// CountRange gives the number of identical physical units in the
@@ -186,7 +193,7 @@ func registerLiquidArchetype(a LiquidChemicalArchetype) {
 			ManufacturerID: manufacturerID,
 			Rng:            rng,
 		})
-	}, 0, a.Rarity)
+	}, 0, a.Rarity, a.ThrustIspBias)
 }
 
 // Validate checks structural invariants on a single archetype. Plan §2
