@@ -43,6 +43,26 @@ func (p PlanetType) String() string {
 
 func (p PlanetType) MarshalText() ([]byte, error) { return []byte(p.String()), nil }
 
+func (p *PlanetType) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "terrestrial":
+		*p = Terrestrial
+	case "ocean_world":
+		*p = OceanWorld
+	case "ice_world":
+		*p = IceWorld
+	case "desert_world":
+		*p = DesertWorld
+	case "gas_giant":
+		*p = GasGiant
+	case "lava_world":
+		*p = LavaWorld
+	default:
+		return fmt.Errorf("unknown planet type: %q", string(text))
+	}
+	return nil
+}
+
 // Planet is the Phase 5 stub — just enough to seed civ generation. No
 // biomes, moons, resource deposits, or orbital mechanics. Full planet
 // generation is a later phase; the civ pipeline depends only on this

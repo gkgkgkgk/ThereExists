@@ -63,6 +63,15 @@ func (i IgnitionMethod) String() string {
 
 func (i IgnitionMethod) MarshalText() ([]byte, error) { return []byte(i.String()), nil }
 
+func (i *IgnitionMethod) UnmarshalText(text []byte) error {
+	v, ok := ParseIgnitionMethod(string(text))
+	if !ok {
+		return fmt.Errorf("unknown ignition method: %q", string(text))
+	}
+	*i = v
+	return nil
+}
+
 // CoolingMethod describes how an engine rejects chamber heat. Each method
 // has real teeth (Plan §2 "Cooling methods — each has real teeth"):
 // Ablative depletes mass; Radiative caps throttle; Film penalises Isp;
@@ -91,6 +100,15 @@ func (c CoolingMethod) String() string {
 }
 
 func (c CoolingMethod) MarshalText() ([]byte, error) { return []byte(c.String()), nil }
+
+func (c *CoolingMethod) UnmarshalText(text []byte) error {
+	v, ok := ParseCoolingMethod(string(text))
+	if !ok {
+		return fmt.Errorf("unknown cooling method: %q", string(text))
+	}
+	*c = v
+	return nil
+}
 
 // AllCoolingMethods enumerates every CoolingMethod value. Used by civgen
 // to build the constrained-choice option menu and by ParseCoolingMethod.
