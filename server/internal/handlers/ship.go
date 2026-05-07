@@ -64,7 +64,7 @@ func (h *ShipHandler) Generate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	loadout, err := assembly.GenerateRandomShip(seed)
+	loadout, err := assembly.GenerateRandomShip(seed, nil)
 	if err != nil {
 		log.Printf("generate ship for player %s: %v", playerID, err)
 		http.Error(w, "factory error", http.StatusInternalServerError)

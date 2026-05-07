@@ -52,12 +52,17 @@ func (l ShipLoadout) MarshalJSON() ([]byte, error) {
 }
 
 // GenerateRandomShip is the single top-level entry point called by the
-// /api/ships/generate handler. Picks a primary civilization (Phase 3:
-// always GenericCivilization) and rolls every flight slot through the
-// flight dispatcher. Deterministic: same seed → same ship.
-func GenerateRandomShip(seed int64) (*ShipLoadout, error) {
+// /api/ships/generate handler. When civ is non-nil, archetype + mixture
+// selection consult its TechProfile (commits 5–7); when nil, the roll
+// falls back to GenericCivilization with no bias. Deterministic: same
+// (seed, civ) → same ship.
+func GenerateRandomShip(seed int64, civ *factory.Civilization) (*ShipLoadout, error) {
 	rng := rand.New(rand.NewSource(seed))
 	primaryCivID := factory.GenericCivilizationID
+	if civ != nil {
+		primaryCivID = civ.ID
+	}
+	bias := civBiasFor(civ)
 
 	loadout := &ShipLoadout{
 		FactoryVersion: FactoryVersion,
@@ -70,7 +75,7 @@ func GenerateRandomShip(seed int64) (*ShipLoadout, error) {
 	// Short+Far (Medium empty) still biases Far toward Short's vendor.
 	previousMfg := ""
 	for _, slot := range []flight.FlightSlot{flight.Short, flight.Medium, flight.Far} {
-		sys, mfgID, err := flight.GenerateForSlot(slot, primaryCivID, previousMfg, rng)
+		sys, mfgID, err := flight.GenerateForSlot(slot, primaryCivID, previousMfg, bias, rng)
 		switch {
 		case err == nil:
 			loadout.Flight[slot] = sys
@@ -85,4 +90,39 @@ func GenerateRandomShip(seed int64) (*ShipLoadout, error) {
 	}
 
 	return loadout, nil
+}
+
+// civBiasFor projects the subset of a civ's TechProfile the flight
+// dispatcher reads. Returns nil for nil civ — the dispatcher treats
+// nil as "no bias."
+func civBiasFor(civ *factory.Civilization) *flight.CivBias {
+	if civ == nil {
+		return nil
+	}
+	tp := civ.TechProfile
+	bias := &flight.CivBias{
+		TechTier:              civ.TechTier,
+		RiskTolerance:         tp.RiskTolerance,
+		ThrustVsIspPreference: tp.ThrustVsIspPreference,
+		AversionToCryogenics:  tp.AversionToCryogenics,
+	}
+	if len(tp.PreferredMixtureIDs) > 0 {
+		bias.PreferredMixtureIDs = make(map[string]bool, len(tp.PreferredMixtureIDs))
+		for _, id := range tp.PreferredMixtureIDs {
+			bias.PreferredMixtureIDs[id] = true
+		}
+	}
+	if len(tp.PreferredCoolingMethods) > 0 {
+		bias.PreferredCoolingMethods = make(map[string]bool, len(tp.PreferredCoolingMethods))
+		for _, c := range tp.PreferredCoolingMethods {
+			bias.PreferredCoolingMethods[c.String()] = true
+		}
+	}
+	if len(tp.PreferredIgnitionTypes) > 0 {
+		bias.PreferredIgnitionTypes = make(map[string]bool, len(tp.PreferredIgnitionTypes))
+		for _, i := range tp.PreferredIgnitionTypes {
+			bias.PreferredIgnitionTypes[i.String()] = true
+		}
+	}
+	return bias
 }

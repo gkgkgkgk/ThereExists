@@ -123,7 +123,8 @@ func SetCivTechTierLookup(fn CivTechTierLookup) { civTechTierLookup = fn }
 // generator. previousManufacturerID is passed through to the picker as
 // a provenance hint — see ManufacturerPicker. The picked manufacturer ID
 // is returned so the caller can thread it as the hint to the next slot.
-func GenerateForSlot(slot FlightSlot, civilizationID, previousManufacturerID string, rng *rand.Rand) (FlightSystem, string, error) {
+func GenerateForSlot(slot FlightSlot, civilizationID, previousManufacturerID string, civ *CivBias, rng *rand.Rand) (FlightSystem, string, error) {
+	_ = civ // commits 5-7 read civ; commit 3 just plumbs it through.
 	entries := slotRegistry[slot]
 	if len(entries) == 0 {
 		return nil, "", ErrSlotEmpty

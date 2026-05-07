@@ -18,7 +18,7 @@ import (
 func TestShipShape_SeedSweep(t *testing.T) {
 	const seeds = 200
 	for seed := int64(0); seed < seeds; seed++ {
-		l, err := GenerateRandomShip(seed)
+		l, err := GenerateRandomShip(seed, nil)
 		if err != nil {
 			t.Fatalf("seed %d: %v", seed, err)
 		}
@@ -68,7 +68,7 @@ func TestFarUnlocksForTier5(t *testing.T) {
 	// Scan a handful of seeds — RBCA is the only tier-5 archetype in
 	// Far, so every seed should populate it once the gate opens.
 	for seed := int64(0); seed < 10; seed++ {
-		l, err := GenerateRandomShip(seed)
+		l, err := GenerateRandomShip(seed, nil)
 		if err != nil {
 			t.Fatalf("seed %d: %v", seed, err)
 		}
@@ -89,7 +89,7 @@ func TestSameManufacturerBias(t *testing.T) {
 	const seeds = 300
 	matched, total := 0, 0
 	for seed := int64(0); seed < seeds; seed++ {
-		l, err := GenerateRandomShip(seed)
+		l, err := GenerateRandomShip(seed, nil)
 		if err != nil {
 			t.Fatalf("seed %d: %v", seed, err)
 		}
