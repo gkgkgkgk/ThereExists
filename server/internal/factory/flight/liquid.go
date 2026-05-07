@@ -188,12 +188,24 @@ func registerLiquidArchetype(a LiquidChemicalArchetype) {
 	a.AllowedMixtures = resolved
 
 	registeredArchetypes = append(registeredArchetypes, a)
-	registerFull(a.FlightSlot, a.Name, func(manufacturerID string, rng *rand.Rand) (FlightSystem, error) {
-		return GenerateLiquidChemicalEngine(a, factory.GenContext{
-			ManufacturerID: manufacturerID,
-			Rng:            rng,
-		})
-	}, 0, a.Rarity, a.ThrustIspBias)
+	coolingNames := make([]string, 0, len(a.AllowedCoolingMethods))
+	for _, c := range a.AllowedCoolingMethods {
+		coolingNames = append(coolingNames, c.String())
+	}
+	registerOpts(RegisterOpts{
+		Slot: a.FlightSlot,
+		Name: a.Name,
+		Generator: func(manufacturerID string, rng *rand.Rand) (FlightSystem, error) {
+			return GenerateLiquidChemicalEngine(a, factory.GenContext{
+				ManufacturerID: manufacturerID,
+				Rng:            rng,
+			})
+		},
+		MinTechTier:        0,
+		Rarity:             a.Rarity,
+		ThrustIspBias:      a.ThrustIspBias,
+		CoolingMethodNames: coolingNames,
+	})
 }
 
 // Validate checks structural invariants on a single archetype. Plan §2

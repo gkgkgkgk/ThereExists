@@ -6,6 +6,7 @@ package flight
 import (
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 )
 
@@ -73,6 +74,13 @@ type archetypeEntry struct {
 	// civ-aware archetype weighting in commit 5; commit 4 only declares
 	// the field. Range is enforced at registration (panics on misauth).
 	thrustIspBias float64
+	// coolingNames is the archetype's AllowedCoolingMethods rendered as
+	// String() values, captured at registration so the dispatcher can
+	// check overlap against CivBias.PreferredCoolingMethods without
+	// reflecting on the underlying archetype struct. Empty means "no
+	// cooling concept" (e.g. relativistic drives) — the cooling-overlap
+	// boost is skipped for those.
+	coolingNames []string
 }
 
 // slotRegistry maps each flight slot to its registered archetypes.
@@ -86,16 +94,62 @@ var slotRegistry = map[FlightSlot][]archetypeEntry{}
 // relative weight used by GenerateForSlot's weighted archetype pick; 0
 // is treated as 1.0 at sample time. A rarity of 0.2 means the
 // archetype is picked ~5× less often than a rarity-1.0 sibling.
+// RegisterOpts is the options bag for registering a new archetype with
+// the dispatcher. Struct-arg keeps the call site readable as more
+// optional dials accrue (Phase 5.1 added ThrustIspBias and
+// CoolingMethodNames).
+type RegisterOpts struct {
+	Slot                FlightSlot
+	Name                string
+	Generator           archetypeGenerator
+	MinTechTier         int
+	Rarity              float64
+	ThrustIspBias       float64
+	CoolingMethodNames  []string // empty for archetypes without a cooling concept
+}
+
+// registerFull is the legacy positional API; kept for archetypes that
+// don't need cooling-name plumbing (Far drives). Prefer registerOpts
+// for new archetypes.
 func registerFull(slot FlightSlot, name string, gen archetypeGenerator, minTechTier int, rarity, thrustIspBias float64) {
-	if thrustIspBias < -1 || thrustIspBias > 1 {
-		panic(fmt.Sprintf("flight: archetype %q ThrustIspBias %v out of [-1, 1]", name, thrustIspBias))
+	registerOpts(RegisterOpts{
+		Slot:          slot,
+		Name:          name,
+		Generator:     gen,
+		MinTechTier:   minTechTier,
+		Rarity:        rarity,
+		ThrustIspBias: thrustIspBias,
+	})
+}
+
+// archetypeFavoursCooling reports whether any of the archetype's
+// allowed cooling methods (captured at registration as String()s)
+// match the civ's preferred cooling methods. Returns false when
+// either side is empty — empty civ preferences mean "no bias," and
+// archetypes without a cooling concept (Far drives) skip the boost.
+func archetypeFavoursCooling(e archetypeEntry, prefs map[string]bool) bool {
+	if len(prefs) == 0 || len(e.coolingNames) == 0 {
+		return false
 	}
-	slotRegistry[slot] = append(slotRegistry[slot], archetypeEntry{
-		archetypeName: name,
-		generate:      gen,
-		minTechTier:   minTechTier,
-		rarity:        rarity,
-		thrustIspBias: thrustIspBias,
+	for _, c := range e.coolingNames {
+		if prefs[c] {
+			return true
+		}
+	}
+	return false
+}
+
+func registerOpts(o RegisterOpts) {
+	if o.ThrustIspBias < -1 || o.ThrustIspBias > 1 {
+		panic(fmt.Sprintf("flight: archetype %q ThrustIspBias %v out of [-1, 1]", o.Name, o.ThrustIspBias))
+	}
+	slotRegistry[o.Slot] = append(slotRegistry[o.Slot], archetypeEntry{
+		archetypeName: o.Name,
+		generate:      o.Generator,
+		minTechTier:   o.MinTechTier,
+		rarity:        o.Rarity,
+		thrustIspBias: o.ThrustIspBias,
+		coolingNames:  o.CoolingMethodNames,
 	})
 }
 
@@ -134,7 +188,6 @@ func SetCivTechTierLookup(fn CivTechTierLookup) { civTechTierLookup = fn }
 // a provenance hint — see ManufacturerPicker. The picked manufacturer ID
 // is returned so the caller can thread it as the hint to the next slot.
 func GenerateForSlot(slot FlightSlot, civilizationID, previousManufacturerID string, civ *CivBias, rng *rand.Rand) (FlightSystem, string, error) {
-	_ = civ // commits 5-7 read civ; commit 3 just plumbs it through.
 	entries := slotRegistry[slot]
 	if len(entries) == 0 {
 		return nil, "", ErrSlotEmpty
@@ -159,24 +212,46 @@ func GenerateForSlot(slot FlightSlot, civilizationID, previousManufacturerID str
 		return nil, "", ErrSlotEmpty
 	}
 
-	// Weighted archetype pick. rarity 0 → treat as 1.0.
+	// Weighted archetype pick. rarity 0 → treat as 1.0. When civ is
+	// non-nil, the rarity weight is multiplied by:
+	//   - ThrustVsIspPreference proximity to e.thrustIspBias (× up to 1.8);
+	//   - RiskTolerance rarity-sharpening exponent (low risk sharpens
+	//     toward the workhorse, high risk flattens the distribution);
+	//   - PreferredCoolingMethods overlap with the archetype's allowed
+	//     cooling methods (× 1.5 if any overlap).
+	// All multiplicative — order doesn't matter. Floor at 0.01 so an
+	// extreme civ never zeros out an eligible archetype entirely.
+	weights := make([]float64, len(eligible))
 	total := 0.0
-	for _, e := range eligible {
+	for i, e := range eligible {
 		w := e.rarity
 		if w <= 0 {
 			w = 1.0
 		}
+		if civ != nil {
+			diff := math.Abs(civ.ThrustVsIspPreference - e.thrustIspBias)
+			w *= 1.0 + 0.8*(1.0-diff/2.0)
+			// risk=0.0 → exp=2 (sharpen toward higher rarity weights);
+			// risk=0.5 → exp=1 (no-op); risk=1.0 → exp=0 (flatten to
+			// near-uniform). Clamp to [0.1, 3] to avoid pathological
+			// distributions.
+			exp := math.Max(0.1, math.Min(3.0, 1.0+(1.0-2.0*civ.RiskTolerance)))
+			w = math.Pow(w, exp)
+			if archetypeFavoursCooling(e, civ.PreferredCoolingMethods) {
+				w *= 1.5
+			}
+		}
+		if w < 0.01 {
+			w = 0.01
+		}
+		weights[i] = w
 		total += w
 	}
 	r := rng.Float64() * total
 	acc := 0.0
 	arch := eligible[len(eligible)-1]
-	for _, e := range eligible {
-		w := e.rarity
-		if w <= 0 {
-			w = 1.0
-		}
-		acc += w
+	for i, e := range eligible {
+		acc += weights[i]
 		if r < acc {
 			arch = e
 			break
