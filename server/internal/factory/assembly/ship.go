@@ -18,7 +18,7 @@ import (
 // FactoryVersion tags every generated loadout so we can reason about
 // ships produced before a later factory change. Bump the suffix whenever
 // generation behavior changes in a way that invalidates old loadouts.
-const FactoryVersion = "phase5-v1"
+const FactoryVersion = "phase5_1-v1"
 
 // ShipLoadout is the serialisable, JSONB-persisted ship configuration.
 // Phase 3 only populates the Short flight slot; Medium and Far are

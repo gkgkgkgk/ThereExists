@@ -62,7 +62,7 @@ func TestCivgenEndToEnd(t *testing.T) {
 }
 
 func TestCivgenFactoryVersion(t *testing.T) {
-	if assembly.FactoryVersion != "phase5-v1" {
-		t.Errorf("FactoryVersion = %q, want phase5-v1", assembly.FactoryVersion)
+	if assembly.FactoryVersion != "phase5_1-v1" {
+		t.Errorf("FactoryVersion = %q, want phase5_1-v1", assembly.FactoryVersion)
 	}
 }
