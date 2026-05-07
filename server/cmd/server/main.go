@@ -65,7 +65,7 @@ func main() {
 	}
 
 	ph := handlers.NewPlayerHandler(database)
-	sh := handlers.NewShipHandler(database)
+	sh := handlers.NewShipHandler(database, llmClient)
 	ch := handlers.NewCivilizationHandler(llmClient)
 
 	mux := http.NewServeMux()

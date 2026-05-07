@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -8,12 +9,44 @@ import (
 	"os"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/gkgkgkgk/ThereExists/server/internal/db"
 	"github.com/gkgkgkgk/ThereExists/server/internal/factory"
 	"github.com/gkgkgkgk/ThereExists/server/internal/factory/flight"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
+
+// seedCivAndLink inserts a synthetic civilizations row and links it to
+// the player via civ_id. Used by tests that need to exercise the
+// handler's "civ already exists, just load it" path without spinning up
+// an LLM. The civ uses GenericCivilization-shaped TechProfile
+// (no preferences) so the rolled ship matches the legacy civ-blind
+// expectations.
+func seedCivAndLink(t *testing.T, database *sql.DB, playerID string) {
+	t.Helper()
+	civID := uuid.NewString()
+	planet, err := factory.GeneratePlanet(7)
+	if err != nil {
+		t.Fatalf("GeneratePlanet: %v", err)
+	}
+	civ := &factory.Civilization{
+		ID:                   civID,
+		Name:                 "Test Civ",
+		Description:          "Synthetic test civilization.",
+		HomeworldDescription: "Synthetic homeworld.",
+		AgeYears:             1000,
+		TechTier:             3,
+		Flavor:               "test",
+	}
+	if err := factory.SaveCivilization(context.Background(), database, civ, planet, "test"); err != nil {
+		t.Fatalf("SaveCivilization: %v", err)
+	}
+	if _, err := database.Exec(`UPDATE players SET civ_id = $1 WHERE id = $2`, civID, playerID); err != nil {
+		t.Fatalf("link civ: %v", err)
+	}
+}
 
 // Phase 3 introduces the handler integration pattern. The test hits a
 // real Postgres (TEST_DATABASE_URL), exercises POST /api/ships/generate
@@ -64,8 +97,14 @@ func TestShipHandler_Generate_RoundTrip(t *testing.T) {
 		t.Fatalf("decode player: %v", err)
 	}
 
+	// Phase 5.1 lazily provisions a civ on the first /generate call —
+	// requires an LLM client. The integration test runs without one, so
+	// pre-seed a civilizations row and link it to the player. The
+	// handler's resolveCiv path then loads it instead of generating.
+	seedCivAndLink(t, database, player.ID)
+
 	// Hit /api/ships/generate.
-	sh := NewShipHandler(database)
+	sh := NewShipHandler(database, nil)
 	genReq := httptest.NewRequest("POST", "/api/ships/generate?player_id="+player.ID, nil)
 	genResp := httptest.NewRecorder()
 	sh.Generate(genResp, genReq)
