@@ -8,6 +8,7 @@ import (
 
 	_ "github.com/gkgkgkgk/ThereExists/server/api"
 	"github.com/gkgkgkgk/ThereExists/server/internal/db"
+	_ "github.com/gkgkgkgk/ThereExists/server/internal/factory/content"
 	"github.com/gkgkgkgk/ThereExists/server/internal/handlers"
 	"github.com/gkgkgkgk/ThereExists/server/internal/llm"
 	"github.com/joho/godotenv"

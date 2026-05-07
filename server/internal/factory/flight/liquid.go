@@ -160,14 +160,15 @@ func (e *LiquidChemicalEngine) Tick(dt, throttle float64) {
 // by registerLiquidArchetype() calls in liquid_archetypes.go.
 var registeredArchetypes []LiquidChemicalArchetype
 
-// registerLiquidArchetype enforces structural validation (panics on
-// failure) and then filters AllowedMixtureIDs to the subset that
-// actually resolves in factory.Mixtures. Unresolved mixtures are logged
-// as warnings — this lets Phase 4 infrastructure land before the
-// full mixture catalog is authored. An archetype whose mixture list
-// becomes empty after filtering is skipped (logged) rather than
-// registered, so the generator never picks an unusable archetype.
-func registerLiquidArchetype(a LiquidChemicalArchetype) {
+// RegisterLiquidArchetype enforces structural validation (panics on
+// failure) and then filters AllowedMixtures to the subset that
+// actually resolves (has Precursors or is Synthetic). Unresolved
+// mixtures are logged as warnings — this lets infrastructure land
+// before content. An archetype whose mixture list becomes empty after
+// filtering is skipped (logged) rather than registered, so the
+// generator never picks an unusable archetype. Called from
+// factory/content/archetypes_liquid.go at init().
+func RegisterLiquidArchetype(a LiquidChemicalArchetype) {
 	if err := a.Validate(); err != nil {
 		panic(fmt.Sprintf("flight: archetype %q failed validation: %v", a.Name, err))
 	}

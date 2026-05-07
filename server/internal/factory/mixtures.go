@@ -19,6 +19,7 @@ type IgnitionConfig struct {
 }
 
 // IgnitionConfigs is the central registry of ignition configurations.
+// Populated from factory/content via RegisterIgnitionConfig at init().
 var IgnitionConfigs = map[string]*IgnitionConfig{}
 
 // LookupIgnitionConfig returns the config for the given ID.
@@ -27,11 +28,19 @@ func LookupIgnitionConfig(id string) (*IgnitionConfig, bool) {
 	return ic, ok
 }
 
-// Mixture is a refined propellant and its synthesis constraints. Phase
-// 4.1 promoted the recipe onto the mixture itself (was on
-// refinery.MixtureProduction in Phase 4) so one chemistry = one
-// canonical recipe; refineries modulate (efficiency, throughput) rather
-// than own alternate recipes. See Phase4_1_Plan.md §1.
+// RegisterIgnitionConfig adds an ignition config to the registry.
+// Validates structure and panics on misauth so authoring mistakes
+// surface at startup. Called from content/ files at init().
+func RegisterIgnitionConfig(ic *IgnitionConfig) {
+	if err := ic.validate(); err != nil {
+		panic(fmt.Sprintf("factory: ignition config %q failed validation: %v", ic.ID, err))
+	}
+	IgnitionConfigs[ic.ID] = ic
+}
+
+// Mixture is a refined propellant and its synthesis constraints. One
+// chemistry = one canonical recipe; refineries modulate (efficiency,
+// throughput) rather than own alternate recipes.
 type Mixture struct {
 	ID              string
 	Description     string
@@ -54,15 +63,15 @@ type Mixture struct {
 	// separate (idle draw, efficiency losses).
 	PowerCostPerKg float64
 
-	// RefiningTimePerKg is processed against PROPER TIME (τ, ship
-	// clock). See TE_TimeDilation.md. Duration type is load-bearing —
-	// the future runtime loop must explicitly pick τ vs t at each call
-	// site rather than drift against an ambient float clock.
+	// RefiningTimePerKg is processed against PROPER TIME (τ, ship clock).
+	// Duration type is load-bearing — the future runtime loop must
+	// explicitly pick τ vs t at each call site rather than drift against
+	// an ambient float clock.
 	RefiningTimePerKg time.Duration
 
-	// Ignition describes how the mixture is lit, referencing an IgnitionConfig.
-	// Must be nil iff Hypergolic (dual-invariant from Phase 4.1 §4).
-	// Non-hypergolic mixtures with Ignition == nil log a warning.
+	// Ignition describes how the mixture is lit, referencing an
+	// IgnitionConfig. Must be nil iff Hypergolic. Non-hypergolic
+	// mixtures with Ignition == nil log a warning.
 	Ignition *IgnitionConfig
 
 	// Synthetic flags propellants without a refinery path — antimatter,
@@ -73,6 +82,12 @@ type Mixture struct {
 	Synthetic bool
 }
 
+// Mixtures is the propellant registry. Populated from factory/content
+// via RegisterMixture at init(). Kept on the factory package so flight
+// archetypes (and future tank/refinery code) can resolve mixture IDs
+// without taking a content/ dependency.
+var Mixtures = map[string]*Mixture{}
+
 // LookupMixture returns the mixture for the given ID. Safe on an empty
 // registry.
 func LookupMixture(id string) (*Mixture, bool) {
@@ -80,233 +95,22 @@ func LookupMixture(id string) (*Mixture, bool) {
 	return m, ok
 }
 
-var SparkIgnition = IgnitionConfig{
-	ID:               "Spark",
-	Resource:         SPARK_RESOURCE,
-	QuantityPerStart: 1,
-	Description:      "Electric torch igniter; one chemical starter consumed per ignition.",
-}
-
-var SilverCatalystIgnition = IgnitionConfig{
-	ID:               "SilverCatalyst",
-	Resource:         SILVER,
-	QuantityPerStart: 0.0005,
-	Description:      "Silver catalyst bed; worn slightly on every decomposition start.",
-}
-
-var Bio_Scaffold_Ignition = IgnitionConfig{
-	ID:               "BioScaffold",
-	Resource:         CHON_ICE, // Find bio-gunk, grow a spark
-	QuantityPerStart: 0.001,    // "Denaturation" or biological atrophy per start
-	Description:      "Enzymatic protein scaffold refined from raw organic CHON precursors.",
-}
-
-var Methalox = Mixture{
-	ID:              "Methalox",
-	Description:     "High-performance cryogenic bipropellant. Offers superior specific impulse for mainline transit but requires active thermal management to prevent boil-off.",
-	Config:          Bipropellant,
-	IspMultiplier:   1.25,
-	DensityKgM3:     830,
-	StorabilityDays: 30,
-	Hypergolic:      false,
-	Cryogenic:       true,
-
-	Precursors: []ResourceInput{
-		{Resource: CH4_ICE, QuantityPerUnitFuel: 0.8},
-		{Resource: H2O_ICE, QuantityPerUnitFuel: 1.5},
-	},
-
-	PowerCostPerKg:    2500.0,
-	RefiningTimePerKg: time.Minute * 20,
-
-	Ignition: &SparkIgnition,
-}
-
-var HTP_90 = Mixture{
-	ID:              "HTP_90",
-	Description:     "90% High-Test Peroxide. A reliable, low-toxicity monopropellant that decomposes into steam and oxygen. Preferred for simplicity and ease of synthesis in the field.",
-	Config:          Monopropellant,
-	IspMultiplier:   0.75,
-	DensityKgM3:     1390,
-	StorabilityDays: 180,
-	Hypergolic:      false,
-	Cryogenic:       false,
-
-	Precursors: []ResourceInput{
-		{Resource: H2O_ICE, QuantityPerUnitFuel: 1.8},
-	},
-
-	PowerCostPerKg:    3000.0,
-	RefiningTimePerKg: time.Minute * 10,
-
-	// Catalytic engines don't need a spark — they need the Silver
-	// catalyst bed to be intact. QuantityPerStart is wear, not
-	// consumption.
-	Ignition: &SilverCatalystIgnition,
-}
-
-var MMH_NTO = Mixture{
-	ID:              "MMH_NTO",
-	Description:     "Standard storable bipropellant. Hypergolic ignition ensures near-instant response for high-frequency RCS pulsing.",
-	Config:          Bipropellant,
-	IspMultiplier:   1.0,
-	DensityKgM3:     1190,
-	StorabilityDays: 3650,
-	Hypergolic:      true,
-	Cryogenic:       false,
-
-	Precursors: []ResourceInput{
-		{Resource: NH3_ICE, QuantityPerUnitFuel: 0.8},
-		{Resource: N2_ICE, QuantityPerUnitFuel: 0.5},
-	},
-
-	PowerCostPerKg:    1800.0,
-	RefiningTimePerKg: time.Minute * 12,
-
-	// Hypergolic: lights on contact; no external ignition.
-	Ignition: nil,
-}
-
-var Aerozine50_NTO = Mixture{
-	ID:              "Aerozine50_NTO",
-	Description:     "A high-stability hypergolic bipropellant. The workhorse of long-term service modules due to its predictable ignition and indefinite storability.",
-	Config:          Bipropellant,
-	IspMultiplier:   1.05,
-	DensityKgM3:     1120,
-	StorabilityDays: 5000, // Almost forever
-	Hypergolic:      true,
-	Cryogenic:       false,
-
-	Precursors: []ResourceInput{
-		{Resource: NH3_ICE, QuantityPerUnitFuel: 1.1}, // For the hydrazine component
-		{Resource: N2_ICE, QuantityPerUnitFuel: 0.6},  // For the nitrogen tetroxide
-	},
-
-	PowerCostPerKg:    2000.0,
-	RefiningTimePerKg: time.Minute * 15,
-
-	Ignition: nil,
-}
-
-var Methane_Fluorine = Mixture{
-	ID:              "Methane_Fluorine",
-	Description:     "An ultra-energetic detonation mixture. Fluorine's extreme reactivity provides massive thrust-to-weight for RDE manifolds, but produces corrosive hydrogen-fluoride exhaust.",
-	Config:          Bipropellant,
-	IspMultiplier:   1.6,
-	DensityKgM3:     950,
-	StorabilityDays: 45, // Corrodes tank liners over time
-	Hypergolic:      true,
-	Cryogenic:       true,
-
-	Precursors: []ResourceInput{
-		{Resource: CH4_ICE, QuantityPerUnitFuel: 0.7},
-		{Resource: FLUORITE_ORE, QuantityPerUnitFuel: 2.2}, // High mass-loss during extraction
-	},
-
-	PowerCostPerKg:    5500.0, // Electrolyzing Fluorine is a power hog
-	RefiningTimePerKg: time.Minute * 45,
-
-	// Hypergolic = No ignition needed
-	Ignition: nil,
-}
-
-var CH3OH_Saline_Substrate = Mixture{
-	ID:              "CH3OH_Saline_Substrate",
-	Description:     "A methanol-perchlorate biogenic substrate. Utilizes Magnesium Perchlorate as a cryoprotectant and electrolyte to maintain the SABRE colony's metabolic potential in deep-space conditions.",
-	Config:          Monopropellant,
-	IspMultiplier:   1.15,
-	DensityKgM3:     1280, // Perchlorates increase fluid density
-	StorabilityDays: -1,
-	Hypergolic:      false,
-	Cryogenic:       false,
-
-	Precursors: []ResourceInput{
-		{Resource: CH4_ICE, QuantityPerUnitFuel: 0.9},        // For the Methanol
-		{Resource: MG_PERCHLORATE, QuantityPerUnitFuel: 0.3}, // For the Saline conductivity
-	},
-
-	PowerCostPerKg:    1400.0,
-	RefiningTimePerKg: time.Hour * 2, // Balancing growth and chemistry
-
-	Ignition: &Bio_Scaffold_Ignition,
-}
-
-var Silane_Ox = Mixture{
-	ID:              "Silane_Ox",
-	Description:     "Silicon-hydride bipropellant. Highly pyrophoric and easy to refine from common regolith, but the SiO2 exhaust (sand) is abrasive to nozzle geometry.",
-	Config:          Bipropellant,
-	IspMultiplier:   0.9, // Low performance, but 'infinite' ammo
-	DensityKgM3:     1050,
-	StorabilityDays: 365,
-	Hypergolic:      true, // Ignites on contact with LOX
-	Cryogenic:       true, // Oxygen component must be kept cold
-
-	Precursors: []ResourceInput{
-		{Resource: HIGH_Q_SILICATES, QuantityPerUnitFuel: 1.5},
-		{Resource: H2O_ICE, QuantityPerUnitFuel: 1.0}, // For the Oxygen oxidizer
-	},
-
-	PowerCostPerKg:    4000.0, // Refining Silicon takes a lot of juice
-	RefiningTimePerKg: time.Minute * 20,
-
-	Ignition: nil,
-}
-
-// Unauthored placeholders to allow direct object references before content pass.
-var Hydrazine = Mixture{ID: "Hydrazine"}
-var GlassHydrazine = Mixture{ID: "Glass-Hydrazine"}
-var LOX_LH2 = Mixture{ID: "LOX_LH2"}
-var Hydrogen_Fluorine = Mixture{ID: "Hydrogen_Fluorine"}
-var Polyphosphate_Concentrate = Mixture{ID: "Polyphosphate_Concentrate"}
-var Matter_Antimatter_Pair = Mixture{ID: "Matter_Antimatter_Pair", Synthetic: true}
-
-// Mixtures is the hand-authored propellant registry. Kept small and
-// hand-authored because mixtures propagate cross-category: an engine's
-// MixtureID must match a tank the ship will later carry (Plan §2).
-var Mixtures = map[string]*Mixture{}
-
-func init() {
-	regIC := func(ic *IgnitionConfig) { IgnitionConfigs[ic.ID] = ic }
-	regIC(&SparkIgnition)
-	regIC(&SilverCatalystIgnition)
-
-	for _, ic := range IgnitionConfigs {
-		if err := ic.validate(); err != nil {
-			panic(fmt.Sprintf("factory: ignition config %q failed validation: %v", ic.ID, err))
-		}
+// RegisterMixture validates and adds a mixture to the registry.
+// Panics on structural inconsistency (Phase 4.1 §4 invariants) so
+// authoring mistakes surface at startup. Called from content/ files
+// at init().
+func RegisterMixture(m *Mixture) {
+	if err := m.validate(); err != nil {
+		panic(fmt.Sprintf("factory: mixture %q failed validation: %v", m.ID, err))
 	}
-
-	regM := func(m *Mixture) { Mixtures[m.ID] = m }
-
-	regM(&Methalox)
-	regM(&HTP_90)
-	regM(&MMH_NTO)
-	regM(&Aerozine50_NTO)
-	regM(&Methane_Fluorine)
-	regM(&CH3OH_Saline_Substrate)
-	regM(&Silane_Ox)
-	regM(&Hydrazine)
-	regM(&GlassHydrazine)
-	regM(&LOX_LH2)
-	regM(&Hydrogen_Fluorine)
-	regM(&Polyphosphate_Concentrate)
-	regM(&Matter_Antimatter_Pair)
-
-	for _, m := range Mixtures {
-		if err := m.validate(); err != nil {
-			panic(fmt.Sprintf("factory: mixture %q failed validation: %v", m.ID, err))
-		}
-	}
+	Mixtures[m.ID] = m
 }
 
-// validate enforces Phase 4.1 §4 rules. Empty-registry-safe and
-// permissive on unset synthesis fields (content is authored post-infra),
-// but strict on internal inconsistencies — a half-populated synthesis
-// declaration or a hypergolic mixture that also lists an ignition
-// resource is a contradiction, not missing content.
+// validate enforces invariants: Synthetic short-circuit, precursor
+// category, ignition dual-invariant, power/time monotonicity. Strict
+// on internal inconsistencies; logs (not errors) on missing-content
+// situations the content pass will fill in later.
 func (m *Mixture) validate() error {
-	// Rule 1: Synthetic short-circuit. Every synthesis field must be
-	// zero — Synthetic means the refinery path is bypassed entirely.
 	if m.Synthetic {
 		if len(m.Precursors) != 0 {
 			return fmt.Errorf("Synthetic mixture must have empty Precursors (got %d)", len(m.Precursors))
@@ -320,10 +124,6 @@ func (m *Mixture) validate() error {
 		return m.validateIgnition()
 	}
 
-	// Rule 2: Precursor category. Every entry must resolve to a
-	// WildPrecursor. Partial authoring is not legal — either fully
-	// populated or fully empty (empty is the post-Phase-4 default;
-	// content pass fills it).
 	for i, ri := range m.Precursors {
 		if ri.Resource == nil {
 			return fmt.Errorf("Precursors[%d] has nil Resource", i)
@@ -336,11 +136,6 @@ func (m *Mixture) validate() error {
 		}
 	}
 
-	// Rule 4: Ignition dual-invariant. Strict on the internal
-	// contradiction (hypergolic + ignition config is nonsense); soft on
-	// the missing-content direction (non-hypergolic with no IgnitionID is
-	// legal until content lands). The soft side logs so the content
-	// pass has a concrete to-do list.
 	if err := m.validateIgnition(); err != nil {
 		return err
 	}
@@ -348,8 +143,6 @@ func (m *Mixture) validate() error {
 		log.Printf("factory: mixture %q is non-hypergolic but has no Ignition config — content pass must fill this in", m.ID)
 	}
 
-	// Rule 5: Power/time monotonicity. Claiming power without time, or
-	// time without power, is a malformed recipe.
 	hasPower := m.PowerCostPerKg > 0
 	hasTime := m.RefiningTimePerKg > 0
 	if hasPower != hasTime {
@@ -359,9 +152,9 @@ func (m *Mixture) validate() error {
 	return nil
 }
 
-// validateIgnition handles the strict half of the dual-invariant.
-// Hypergolic mixtures may not declare an Ignition config — they light on
-// contact; any external igniter is a declaration error.
+// validateIgnition: hypergolic mixtures may not declare an Ignition
+// config — they light on contact; any external igniter is a
+// declaration error.
 func (m *Mixture) validateIgnition() error {
 	if m.Hypergolic && m.Ignition != nil {
 		return fmt.Errorf("hypergolic mixture must not declare an Ignition config (got %q)", m.Ignition.ID)

@@ -104,9 +104,10 @@ func (a RelativisticDriveArchetype) Validate() error {
 	return errors.Join(errs...)
 }
 
-// registerRelativisticArchetype mirrors registerLiquidArchetype:
+// RegisterRelativisticArchetype mirrors RegisterLiquidArchetype:
 // structural validation panics; mixture resolution warn-and-skips.
-func registerRelativisticArchetype(a RelativisticDriveArchetype) {
+// Called from factory/content/archetypes_far.go at init().
+func RegisterRelativisticArchetype(a RelativisticDriveArchetype) {
 	if err := a.Validate(); err != nil {
 		panic(fmt.Sprintf("flight: Far archetype %q failed validation: %v", a.Name, err))
 	}
