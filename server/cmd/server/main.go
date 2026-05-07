@@ -52,11 +52,8 @@ func main() {
 	}
 
 	sh := handlers.NewShipHandler(database, llmClient)
-	ch := handlers.NewCivilizationHandler(llmClient)
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/ships/generate", sh.Generate)
-	mux.HandleFunc("POST /api/civilizations/generate", ch.Generate)
 	mux.HandleFunc("GET /api/health", healthCheck)
 
 	mux.Handle("GET /swagger/", httpSwagger.Handler(
