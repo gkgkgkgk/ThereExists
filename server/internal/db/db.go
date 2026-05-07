@@ -47,6 +47,25 @@ func Migrate(database *sql.DB) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS one_active_ship_per_player
 			ON ships(player_id) WHERE status = 'active'`,
 		`CREATE INDEX IF NOT EXISTS ships_player_id_idx ON ships(player_id)`,
+		`CREATE TABLE IF NOT EXISTS civilizations (
+			id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			name            TEXT NOT NULL,
+			description     TEXT NOT NULL,
+			homeworld_desc  TEXT NOT NULL,
+			age_years       BIGINT NOT NULL,
+			tech_tier       INTEGER NOT NULL,
+			flavor          TEXT NOT NULL,
+			profile         JSONB NOT NULL,
+			planet          JSONB NOT NULL,
+			factory_version TEXT NOT NULL,
+			created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`ALTER TABLE players
+			ADD COLUMN IF NOT EXISTS civ_id UUID
+				REFERENCES civilizations(id) ON DELETE SET NULL`,
+		`ALTER TABLE ships
+			ADD COLUMN IF NOT EXISTS civ_id UUID
+				REFERENCES civilizations(id) ON DELETE SET NULL`,
 	}
 	for _, s := range stmts {
 		if _, err := database.ExecContext(context.Background(), s); err != nil {
