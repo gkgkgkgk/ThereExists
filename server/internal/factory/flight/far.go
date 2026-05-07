@@ -126,29 +126,25 @@ func registerRelativisticArchetype(a RelativisticDriveArchetype) {
 	a.AllowedMixtures = resolved
 
 	registeredRelativisticArchetypes = append(registeredRelativisticArchetypes, a)
-	registerFull(a.FlightSlot, a.Name, func(manufacturerID string, civ *CivBias, rng *rand.Rand) (FlightSystem, error) {
-		return GenerateRelativisticDrive(a, civ, factory.GenContext{
-			ManufacturerID: manufacturerID,
-			Rng:            rng,
-		})
-	}, a.TechTier, a.Rarity, a.ThrustIspBias)
+	Register(RegisterOpts{
+		Slot: a.FlightSlot,
+		Name: a.Name,
+		Generator: func(civ *CivBias, rng *rand.Rand) (FlightSystem, error) {
+			return GenerateRelativisticDrive(a, civ, rng)
+		},
+		MinTechTier:   a.TechTier,
+		Rarity:        a.Rarity,
+		ThrustIspBias: a.ThrustIspBias,
+	})
 }
 
 // ──────────────────────────── Generator ────────────────────────────────
 
-func GenerateRelativisticDrive(a RelativisticDriveArchetype, civ *CivBias, ctx factory.GenContext) (*RelativisticDrive, error) {
-	rng := ctx.Rng
+func GenerateRelativisticDrive(a RelativisticDriveArchetype, civ *CivBias, rng *rand.Rand) (*RelativisticDrive, error) {
 	if rng == nil {
-		return nil, fmt.Errorf("GenerateRelativisticDrive: ctx.Rng is nil")
+		return nil, fmt.Errorf("GenerateRelativisticDrive: rng is nil")
 	}
-	mfg, ok := factory.Manufacturers[ctx.ManufacturerID]
-	if !ok {
-		return nil, fmt.Errorf("GenerateRelativisticDrive: unknown manufacturer %q", ctx.ManufacturerID)
-	}
-	mfgCiv, ok := factory.Civilizations[mfg.CivilizationID]
-	if !ok {
-		return nil, fmt.Errorf("GenerateRelativisticDrive: unknown civilization %q for manufacturer %q", mfg.CivilizationID, mfg.ID)
-	}
+	mfgName, mfgPrefix, tier := manufacturerStamp(civ)
 
 	d := &RelativisticDrive{
 		FlightSlot:        a.FlightSlot,
@@ -158,13 +154,13 @@ func GenerateRelativisticDrive(a RelativisticDriveArchetype, civ *CivBias, ctx f
 	}
 	d.ID = uuid.New()
 	d.ArchetypeName = a.Name
-	d.ManufacturerID = mfg.ID
-	d.SerialNumber = mfg.NamingConvention(rng, a.Name)
+	d.ManufacturerName = mfgName
+	d.SerialNumber = factory.PartSerial(mfgPrefix, a.Name, rng)
 	d.Name = d.SerialNumber
 
 	// A Far drive is one coherent reactor — single unit, single health.
 	d.Count = 1
-	d.Health = []float64{rollHealth(a.HealthInitRange, mfgCiv.TechTier, civ, rng)}
+	d.Health = []float64{rollHealth(a.HealthInitRange, tier, civ, rng)}
 
 	d.IspVacuumSec = factory.LogUniform(a.IspVacuumRange[0], a.IspVacuumRange[1], rng)
 	d.ThrustN = factory.LogUniform(a.ThrustNRange[0], a.ThrustNRange[1], rng)

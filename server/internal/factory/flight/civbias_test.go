@@ -2,27 +2,8 @@ package flight
 
 import (
 	"math/rand"
-	"os"
 	"testing"
-
-	"github.com/gkgkgkgk/ThereExists/server/internal/factory"
 )
-
-// TestMain wires the dispatcher's injected lookups against the factory
-// registry — main.go does this in production. Lives in the package's
-// only test file that needs it; if a future test file in this package
-// needs a different setup, hoist this into its own helpers file.
-func TestMain(m *testing.M) {
-	SetManufacturerPicker(factory.PickManufacturer)
-	SetCivTechTierLookup(func(id string) (int, bool) {
-		c, ok := factory.Civilizations[id]
-		if !ok {
-			return 0, false
-		}
-		return c.TechTier, true
-	})
-	os.Exit(m.Run())
-}
 
 // TestCivBias_ThrustVsIspShifts — drive the dispatcher with two civ
 // profiles that prefer opposite ends of the thrust/Isp axis and assert
@@ -77,7 +58,7 @@ func countMediumArchetype(t *testing.T, civ *CivBias, name string, n int) int {
 	rng := rand.New(rand.NewSource(42))
 	count := 0
 	for i := 0; i < n; i++ {
-		sys, _, err := GenerateForSlot(Medium, "GenericCivilization", "", civ, rng)
+		sys, err := GenerateForSlot(Medium, civ, rng)
 		if err != nil {
 			t.Fatalf("GenerateForSlot: %v", err)
 		}

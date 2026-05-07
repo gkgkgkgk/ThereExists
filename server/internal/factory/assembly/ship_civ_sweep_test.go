@@ -2,8 +2,6 @@ package assembly
 
 import (
 	"encoding/json"
-	"fmt"
-	"math/rand"
 	"testing"
 
 	"github.com/gkgkgkgk/ThereExists/server/internal/factory"
@@ -112,26 +110,14 @@ func TestFactoryVersionPhase5_1(t *testing.T) {
 	}
 }
 
-// registerSyntheticCiv adds a synthetic civ and one placeholder
-// manufacturer (so PickManufacturer has a candidate) to the global
-// registries, with cleanup to unwind both at the end of the test.
+// registerSyntheticCiv is a no-op now — the dispatcher reads tier and
+// preferences directly from the *factory.Civilization passed into
+// GenerateRandomShip, so no global registration is needed. Kept as a
+// named hook so adding registry-touching setup back here later (if
+// content registration grows test fixtures) is a one-line change.
 func registerSyntheticCiv(t *testing.T, civ *factory.Civilization) {
 	t.Helper()
-	factory.Civilizations[civ.ID] = civ
-	mfgID := fmt.Sprintf("test_mfg_%s", civ.ID)
-	factory.Manufacturers[mfgID] = &factory.Manufacturer{
-		ID:             mfgID,
-		CivilizationID: civ.ID,
-		DisplayName:    "Test Mfg " + civ.Name,
-		NamingConvention: func(rng *rand.Rand, archetype string) string {
-			return fmt.Sprintf("TM-%04d", rng.Intn(9000)+1000)
-		},
-		Flavor: "synthetic test manufacturer",
-	}
-	t.Cleanup(func() {
-		delete(factory.Civilizations, civ.ID)
-		delete(factory.Manufacturers, mfgID)
-	})
+	_ = civ
 }
 
 // civSweepStats accumulates the metrics the divergence test asserts on.

@@ -192,14 +192,11 @@ func registerLiquidArchetype(a LiquidChemicalArchetype) {
 	for _, c := range a.AllowedCoolingMethods {
 		coolingNames = append(coolingNames, c.String())
 	}
-	registerOpts(RegisterOpts{
+	Register(RegisterOpts{
 		Slot: a.FlightSlot,
 		Name: a.Name,
-		Generator: func(manufacturerID string, civ *CivBias, rng *rand.Rand) (FlightSystem, error) {
-			return GenerateLiquidChemicalEngine(a, civ, factory.GenContext{
-				ManufacturerID: manufacturerID,
-				Rng:            rng,
-			})
+		Generator: func(civ *CivBias, rng *rand.Rand) (FlightSystem, error) {
+			return GenerateLiquidChemicalEngine(a, civ, rng)
 		},
 		MinTechTier:        0,
 		Rarity:             a.Rarity,
@@ -265,27 +262,19 @@ func (a LiquidChemicalArchetype) Validate() error {
 // GenerateLiquidChemicalEngine implements the Plan §2 generation DAG.
 // Each group's output conditions subsequent groups so no post-hoc
 // clamping is needed.
-func GenerateLiquidChemicalEngine(a LiquidChemicalArchetype, civ *CivBias, ctx factory.GenContext) (*LiquidChemicalEngine, error) {
-	rng := ctx.Rng
+func GenerateLiquidChemicalEngine(a LiquidChemicalArchetype, civ *CivBias, rng *rand.Rand) (*LiquidChemicalEngine, error) {
 	if rng == nil {
-		return nil, fmt.Errorf("GenerateLiquidChemicalEngine: ctx.Rng is nil")
+		return nil, fmt.Errorf("GenerateLiquidChemicalEngine: rng is nil")
 	}
-	mfg, ok := factory.Manufacturers[ctx.ManufacturerID]
-	if !ok {
-		return nil, fmt.Errorf("GenerateLiquidChemicalEngine: unknown manufacturer %q", ctx.ManufacturerID)
-	}
-	mfgCiv, ok := factory.Civilizations[mfg.CivilizationID]
-	if !ok {
-		return nil, fmt.Errorf("GenerateLiquidChemicalEngine: unknown civilization %q for manufacturer %q", mfg.CivilizationID, mfg.ID)
-	}
+	mfgName, mfgPrefix, tier := manufacturerStamp(civ)
 
 	e := &LiquidChemicalEngine{FlightSlot: a.FlightSlot}
 
 	// ── Group 0 — SystemBase identity ─────────────────────────────────
 	e.ID = uuid.New()
 	e.ArchetypeName = a.Name
-	e.ManufacturerID = mfg.ID
-	e.SerialNumber = mfg.NamingConvention(rng, a.Name)
+	e.ManufacturerName = mfgName
+	e.SerialNumber = factory.PartSerial(mfgPrefix, a.Name, rng)
 	e.Name = e.SerialNumber
 
 	// Redundancy: roll a unit count, then roll per-unit initial health so
@@ -294,7 +283,7 @@ func GenerateLiquidChemicalEngine(a LiquidChemicalArchetype, civ *CivBias, ctx f
 	e.Count = a.CountRange[0] + rng.Intn(countSpan)
 	e.Health = make([]float64, e.Count)
 	for i := range e.Health {
-		e.Health[i] = rollHealth(a.HealthInitRange, mfgCiv.TechTier, civ, rng)
+		e.Health[i] = rollHealth(a.HealthInitRange, tier, civ, rng)
 	}
 
 	// ── Group 1 — ChamberPressureBar (performance driver) ─────────────

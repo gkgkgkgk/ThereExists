@@ -3,26 +3,8 @@ package assembly
 import (
 	"bytes"
 	"encoding/json"
-	"os"
 	"testing"
-
-	"github.com/gkgkgkgk/ThereExists/server/internal/factory"
-	"github.com/gkgkgkgk/ThereExists/server/internal/factory/flight"
 )
-
-// TestMain wires the flight dispatcher to the factory's manufacturer
-// picker — main.go does this in production, but tests don't run main.
-func TestMain(m *testing.M) {
-	flight.SetManufacturerPicker(factory.PickManufacturer)
-	flight.SetCivTechTierLookup(func(id string) (int, bool) {
-		c, ok := factory.Civilizations[id]
-		if !ok {
-			return 0, false
-		}
-		return c.TechTier, true
-	})
-	os.Exit(m.Run())
-}
 
 // TestGenerateRandomShip_Determinism — same seed → bit-equal JSON.
 // UUIDs make struct-equality fragile (every engine gets a fresh ID), so

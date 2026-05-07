@@ -8,19 +8,12 @@ import (
 	"github.com/gkgkgkgk/ThereExists/server/internal/factory"
 )
 
-// rollOne is a small helper — pick a manufacturer for GenericCivilization
-// and roll an engine from RCAStandard with the given seed.
+// rollOne rolls an engine from RCAStandard with the given seed under
+// the nil-civ baseline (tier 3, generic shipwright stamp).
 func rollOne(t *testing.T, seed int64) *LiquidChemicalEngine {
 	t.Helper()
 	rng := rand.New(rand.NewSource(seed))
-	mfg, err := factory.PickManufacturer(factory.GenericCivilizationID, "RCAStandard", "", rng)
-	if err != nil {
-		t.Fatalf("PickManufacturer: %v", err)
-	}
-	e, err := GenerateLiquidChemicalEngine(RCAStandard, nil, factory.GenContext{
-		ManufacturerID: mfg,
-		Rng:            rng,
-	})
+	e, err := GenerateLiquidChemicalEngine(RCAStandard, nil, rng)
 	if err != nil {
 		t.Fatalf("GenerateLiquidChemicalEngine: %v", err)
 	}

@@ -1,7 +1,6 @@
-// Package assembly owns ship-level generation — picking a primary
-// civilization, iterating the flight slots, and producing a persisted
-// ShipLoadout. Lives in its own subpackage because it depends on both
-// the factory root (registries, GenContext) and the flight category
+// Package assembly owns ship-level generation — iterating the flight
+// slots and producing a ShipLoadout. Lives in its own subpackage
+// because it depends on both the factory root and the flight category
 // subpackage. Putting it at the factory root would close an import
 // cycle with flight/.
 package assembly
@@ -20,27 +19,22 @@ import (
 // generation behavior changes in a way that invalidates old loadouts.
 const FactoryVersion = "phase5_1-v1"
 
-// ShipLoadout is the serialisable, JSONB-persisted ship configuration.
-// Phase 3 only populates the Short flight slot; Medium and Far are
-// always nil — they serialise as explicit JSON null so the frontend
-// contract is stable (keys always present).
+// ShipLoadout is the serialisable ship configuration.
 type ShipLoadout struct {
 	FactoryVersion string
-	// TODO(phase-4): tighten to map[flight.FlightSlot]flight.FlightSystem
-	// once FlightSystem grows methods.
-	Flight map[flight.FlightSlot]any
+	Flight         map[flight.FlightSlot]any
 }
 
-// MarshalJSON emits the shape documented in Plan §4:
+// MarshalJSON emits:
 //
-//	{
-//	  "factory_version": "...",
-//	  "flight": { "short": {...}, "medium": null, "far": null }
-//	}
+//	{ "factory_version": "...", "flight": { "short": {...}, "medium": ..., "far": ... } }
+//
+// All three slots are always present in the JSON; an empty slot serialises
+// as explicit null rather than being dropped from the map.
 func (l ShipLoadout) MarshalJSON() ([]byte, error) {
 	flightMap := map[string]any{}
 	for _, slot := range []flight.FlightSlot{flight.Short, flight.Medium, flight.Far} {
-		flightMap[slot.String()] = l.Flight[slot] // nil → JSON null
+		flightMap[slot.String()] = l.Flight[slot]
 	}
 	return json.Marshal(struct {
 		FactoryVersion string         `json:"factory_version"`
@@ -53,15 +47,12 @@ func (l ShipLoadout) MarshalJSON() ([]byte, error) {
 
 // GenerateRandomShip is the single top-level entry point called by the
 // /api/ships/generate handler. When civ is non-nil, archetype + mixture
-// selection consult its TechProfile (commits 5–7); when nil, the roll
-// falls back to GenericCivilization with no bias. Deterministic: same
-// (seed, civ) → same ship.
+// selection consult its TechProfile and every part is stamped with the
+// civ's name as manufacturer. When nil, the roll falls back to a
+// tier-3 baseline with no bias. Deterministic: same (seed, civ) →
+// same ship.
 func GenerateRandomShip(seed int64, civ *factory.Civilization) (*ShipLoadout, error) {
 	rng := rand.New(rand.NewSource(seed))
-	primaryCivID := factory.GenericCivilizationID
-	if civ != nil {
-		primaryCivID = civ.ID
-	}
 	bias := civBiasFor(civ)
 
 	loadout := &ShipLoadout{
@@ -69,17 +60,11 @@ func GenerateRandomShip(seed int64, civ *factory.Civilization) (*ShipLoadout, er
 		Flight:         map[flight.FlightSlot]any{},
 	}
 
-	// previousMfg threads the manufacturer picked for the previous slot
-	// into the next slot's picker as a provenance hint. Empty on the
-	// first slot and preserved across ErrSlotEmpty slots so a ship with
-	// Short+Far (Medium empty) still biases Far toward Short's vendor.
-	previousMfg := ""
 	for _, slot := range []flight.FlightSlot{flight.Short, flight.Medium, flight.Far} {
-		sys, mfgID, err := flight.GenerateForSlot(slot, primaryCivID, previousMfg, bias, rng)
+		sys, err := flight.GenerateForSlot(slot, bias, rng)
 		switch {
 		case err == nil:
 			loadout.Flight[slot] = sys
-			previousMfg = mfgID
 		case errors.Is(err, flight.ErrSlotEmpty):
 			// Explicit nil so MarshalJSON emits "slot": null rather
 			// than dropping the key.
@@ -93,14 +78,17 @@ func GenerateRandomShip(seed int64, civ *factory.Civilization) (*ShipLoadout, er
 }
 
 // civBiasFor projects the subset of a civ's TechProfile the flight
-// dispatcher reads. Returns nil for nil civ — the dispatcher treats
-// nil as "no bias."
+// dispatcher reads, plus the manufacturer-stamping fields (civ name and
+// derived prefix). Returns nil for nil civ — the dispatcher treats
+// nil as "no bias, tier 3, generic prefix."
 func civBiasFor(civ *factory.Civilization) *flight.CivBias {
 	if civ == nil {
 		return nil
 	}
 	tp := civ.TechProfile
 	bias := &flight.CivBias{
+		Name:                  civ.Name,
+		ManufacturerPrefix:    factory.ShipwrightPrefix(civ.Name),
 		TechTier:              civ.TechTier,
 		RiskTolerance:         tp.RiskTolerance,
 		ThrustVsIspPreference: tp.ThrustVsIspPreference,

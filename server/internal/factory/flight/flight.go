@@ -1,6 +1,6 @@
 // Package flight hosts flight-system archetypes, instances, and the
 // slot dispatcher. Every finished ship has three flight slots
-// (Short / Medium / Far). Phase 3 populates only Short.
+// (Short / Medium / Far).
 package flight
 
 import (
@@ -49,21 +49,20 @@ func (s *FlightSlot) UnmarshalText(text []byte) error {
 }
 
 // FlightSystem is the interface every flight-slot instance satisfies.
-// Deliberately empty in Phase 3 — grows methods once a second flight
-// category exists and there's something worth abstracting.
-//nolint:golint // empty interface is intentional — grows methods in Phase 4.
+// Deliberately empty — grows methods once a second flight category
+// exists and there's something worth abstracting.
 type FlightSystem interface{}
 
-// ErrSlotEmpty means no archetype is registered for the requested slot.
-// Phase 3 returns this for Medium and Far.
+// ErrSlotEmpty means no archetype is registered for the requested slot
+// (or none survive tier filtering). Returned to assembly as the
+// "leave this slot null" signal.
 var ErrSlotEmpty = errors.New("flight: no archetype registered for slot")
 
-// archetypeGenerator produces a concrete FlightSystem for a chosen
-// manufacturer. The dispatcher owns archetype + manufacturer selection,
-// then hands both — plus the optional CivBias — to this function. civ
-// is nil when the caller doesn't supply one (legacy/test path); in
-// that case the generator falls back to civ-blind defaults.
-type archetypeGenerator func(manufacturerID string, civ *CivBias, rng *rand.Rand) (FlightSystem, error)
+// archetypeGenerator produces a concrete FlightSystem. The dispatcher
+// owns archetype selection then hands the chosen civ + rng to this
+// function. civ is nil when the caller doesn't supply one (legacy/test
+// path); the generator falls back to tier-3 / no-bias defaults.
+type archetypeGenerator func(civ *CivBias, rng *rand.Rand) (FlightSystem, error)
 
 type archetypeEntry struct {
 	archetypeName string
@@ -71,77 +70,37 @@ type archetypeEntry struct {
 	minTechTier   int     // 0 = no gate; civ must satisfy civTier >= minTechTier
 	rarity        float64 // > 0 relative weight; 0 is treated as 1.0 at sample time
 	// thrustIspBias positions the archetype on the thrust↔Isp axis,
-	// range [-1, 1]. -1 = punchy (high T/W, low Isp, e.g. RDE);
-	// +1 = efficient (high Isp, lower T/W, e.g. RBCA). Read by the
-	// civ-aware archetype weighting in commit 5; commit 4 only declares
-	// the field. Range is enforced at registration (panics on misauth).
+	// range [-1, 1]. -1 = punchy (high T/W, low Isp); +1 = efficient
+	// (high Isp, lower T/W). Range is enforced at registration.
 	thrustIspBias float64
 	// coolingNames is the archetype's AllowedCoolingMethods rendered as
 	// String() values, captured at registration so the dispatcher can
-	// check overlap against CivBias.PreferredCoolingMethods without
-	// reflecting on the underlying archetype struct. Empty means "no
-	// cooling concept" (e.g. relativistic drives) — the cooling-overlap
-	// boost is skipped for those.
+	// check overlap against CivBias.PreferredCoolingMethods. Empty
+	// means "no cooling concept" (e.g. relativistic drives).
 	coolingNames []string
 }
 
 // slotRegistry maps each flight slot to its registered archetypes.
-// Populated via register() from per-category init() funcs (e.g. liquid.go).
+// Populated via Register() from per-category init() funcs.
 var slotRegistry = map[FlightSlot][]archetypeEntry{}
 
-// registerFull registers an archetype with the slot dispatcher.
-// minTechTier 0 means no gate; otherwise civs with TechTier <
-// minTechTier never see this archetype and their slot rolls as
-// ErrSlotEmpty if nothing else survives filtering. rarity is a
-// relative weight used by GenerateForSlot's weighted archetype pick; 0
-// is treated as 1.0 at sample time. A rarity of 0.2 means the
-// archetype is picked ~5× less often than a rarity-1.0 sibling.
 // RegisterOpts is the options bag for registering a new archetype with
-// the dispatcher. Struct-arg keeps the call site readable as more
-// optional dials accrue (Phase 5.1 added ThrustIspBias and
-// CoolingMethodNames).
+// the dispatcher.
 type RegisterOpts struct {
-	Slot                FlightSlot
-	Name                string
-	Generator           archetypeGenerator
-	MinTechTier         int
-	Rarity              float64
-	ThrustIspBias       float64
-	CoolingMethodNames  []string // empty for archetypes without a cooling concept
+	Slot               FlightSlot
+	Name               string
+	Generator          func(civ *CivBias, rng *rand.Rand) (FlightSystem, error)
+	MinTechTier        int
+	Rarity             float64
+	ThrustIspBias      float64
+	CoolingMethodNames []string
 }
 
-// registerFull is the legacy positional API; kept for archetypes that
-// don't need cooling-name plumbing (Far drives). Prefer registerOpts
-// for new archetypes.
-func registerFull(slot FlightSlot, name string, gen archetypeGenerator, minTechTier int, rarity, thrustIspBias float64) {
-	registerOpts(RegisterOpts{
-		Slot:          slot,
-		Name:          name,
-		Generator:     gen,
-		MinTechTier:   minTechTier,
-		Rarity:        rarity,
-		ThrustIspBias: thrustIspBias,
-	})
-}
-
-// archetypeFavoursCooling reports whether any of the archetype's
-// allowed cooling methods (captured at registration as String()s)
-// match the civ's preferred cooling methods. Returns false when
-// either side is empty — empty civ preferences mean "no bias," and
-// archetypes without a cooling concept (Far drives) skip the boost.
-func archetypeFavoursCooling(e archetypeEntry, prefs map[string]bool) bool {
-	if len(prefs) == 0 || len(e.coolingNames) == 0 {
-		return false
-	}
-	for _, c := range e.coolingNames {
-		if prefs[c] {
-			return true
-		}
-	}
-	return false
-}
-
-func registerOpts(o RegisterOpts) {
+// Register adds an archetype to the slot dispatcher. Called from
+// per-category content files (factory/content/archetypes_*.go) at
+// init(). Validates ThrustIspBias range; panics on misauth so
+// authoring mistakes surface at startup.
+func Register(o RegisterOpts) {
 	if o.ThrustIspBias < -1 || o.ThrustIspBias > 1 {
 		panic(fmt.Sprintf("flight: archetype %q ThrustIspBias %v out of [-1, 1]", o.Name, o.ThrustIspBias))
 	}
@@ -155,63 +114,48 @@ func registerOpts(o RegisterOpts) {
 	})
 }
 
-// ManufacturerPicker resolves a manufacturer for a given civ + archetype.
-// previousManufacturerID is a provenance hint: when non-empty, pickers
-// that honour it (e.g. factory.PickManufacturerBiased) bias toward the
-// same manufacturer as the previous slot so a ship tends to ship as a
-// coherent kit rather than a yard-sale of vendors. Pass "" for the first
-// slot, or from any picker that ignores the hint.
-//
-// Injected so the flight package doesn't import the factory root, which
-// would close an import cycle.
-type ManufacturerPicker func(civilizationID, archetypeName, previousManufacturerID string, rng *rand.Rand) (manufacturerID string, err error)
+// archetypeFavoursCooling reports whether any of the archetype's
+// allowed cooling methods (captured at registration as String()s)
+// match the civ's preferred cooling methods.
+func archetypeFavoursCooling(e archetypeEntry, prefs map[string]bool) bool {
+	if len(prefs) == 0 || len(e.coolingNames) == 0 {
+		return false
+	}
+	for _, c := range e.coolingNames {
+		if prefs[c] {
+			return true
+		}
+	}
+	return false
+}
 
-var manufacturerPicker ManufacturerPicker
-
-// SetManufacturerPicker is called once at server startup (from the
-// factory root package) to wire up manufacturer resolution.
-func SetManufacturerPicker(p ManufacturerPicker) { manufacturerPicker = p }
-
-// CivTechTierLookup returns the TechTier (1..5) for a given civ ID.
-// Injected for the same import-cycle reason as ManufacturerPicker.
-type CivTechTierLookup func(civilizationID string) (techTier int, ok bool)
-
-var civTechTierLookup CivTechTierLookup
-
-// SetCivTechTierLookup wires the civ-tier lookup at server startup. If
-// unset, GenerateForSlot treats every archetype as ungated (tier 0) and
-// returns an error so the misconfiguration is loud, not silent.
-func SetCivTechTierLookup(fn CivTechTierLookup) { civTechTierLookup = fn }
+// defaultTechTier is the tier the dispatcher uses when civ is nil —
+// matches the historical GenericCivilization fallback.
+const defaultTechTier = 3
 
 // GenerateForSlot picks an archetype registered for the slot (filtered
-// by the civ's TechTier against each archetype's minTechTier), resolves
-// a manufacturer for the given civilization, and runs the archetype's
-// generator. previousManufacturerID is passed through to the picker as
-// a provenance hint — see ManufacturerPicker. The picked manufacturer ID
-// is returned so the caller can thread it as the hint to the next slot.
-func GenerateForSlot(slot FlightSlot, civilizationID, previousManufacturerID string, civ *CivBias, rng *rand.Rand) (FlightSystem, string, error) {
+// by the civ's TechTier against each archetype's minTechTier) and runs
+// the chosen archetype's generator. The civ-aware rarity weighting
+// (ThrustVsIspPreference proximity, RiskTolerance sharpening,
+// PreferredCoolingMethods overlap) applies when civ is non-nil.
+func GenerateForSlot(slot FlightSlot, civ *CivBias, rng *rand.Rand) (FlightSystem, error) {
 	entries := slotRegistry[slot]
 	if len(entries) == 0 {
-		return nil, "", ErrSlotEmpty
+		return nil, ErrSlotEmpty
 	}
 
-	// Filter by TechTier. Tier lookup is mandatory — missing wiring is
-	// a configuration error, not an excuse to silently ignore gates.
-	if civTechTierLookup == nil {
-		return nil, "", errors.New("flight: civ tech-tier lookup not configured")
-	}
-	civTier, ok := civTechTierLookup(civilizationID)
-	if !ok {
-		return nil, "", fmt.Errorf("flight: unknown civilization %q", civilizationID)
+	tier := defaultTechTier
+	if civ != nil {
+		tier = civ.TechTier
 	}
 	eligible := make([]archetypeEntry, 0, len(entries))
 	for _, e := range entries {
-		if e.minTechTier <= civTier {
+		if e.minTechTier <= tier {
 			eligible = append(eligible, e)
 		}
 	}
 	if len(eligible) == 0 {
-		return nil, "", ErrSlotEmpty
+		return nil, ErrSlotEmpty
 	}
 
 	// Weighted archetype pick. rarity 0 → treat as 1.0. When civ is
@@ -260,16 +204,5 @@ func GenerateForSlot(slot FlightSlot, civilizationID, previousManufacturerID str
 		}
 	}
 
-	if manufacturerPicker == nil {
-		return nil, "", errors.New("flight: manufacturer picker not configured")
-	}
-	mfgID, err := manufacturerPicker(civilizationID, arch.archetypeName, previousManufacturerID, rng)
-	if err != nil {
-		return nil, "", fmt.Errorf("pick manufacturer: %w", err)
-	}
-	sys, err := arch.generate(mfgID, civ, rng)
-	if err != nil {
-		return nil, "", err
-	}
-	return sys, mfgID, nil
+	return arch.generate(civ, rng)
 }

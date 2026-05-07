@@ -8,8 +8,6 @@ import (
 
 	_ "github.com/gkgkgkgk/ThereExists/server/api"
 	"github.com/gkgkgkgk/ThereExists/server/internal/db"
-	"github.com/gkgkgkgk/ThereExists/server/internal/factory"
-	"github.com/gkgkgkgk/ThereExists/server/internal/factory/flight"
 	"github.com/gkgkgkgk/ThereExists/server/internal/handlers"
 	"github.com/gkgkgkgk/ThereExists/server/internal/llm"
 	"github.com/joho/godotenv"
@@ -43,18 +41,6 @@ func main() {
 	if err := db.Migrate(database); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
-
-	// Wire the factory's manufacturer picker into the flight dispatcher.
-	// Done here (not in factory/init) to keep the factory → flight edge
-	// one-way and avoid an import cycle.
-	flight.SetManufacturerPicker(factory.PickManufacturer)
-	flight.SetCivTechTierLookup(func(id string) (int, bool) {
-		c, ok := factory.Civilizations[id]
-		if !ok {
-			return 0, false
-		}
-		return c.TechTier, true
-	})
 
 	// LLM client is optional — if OPENAI_API_KEY is missing, the civ
 	// endpoint 503s but the rest of the server still boots.
