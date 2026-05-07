@@ -29,10 +29,11 @@ if (Test-Path $stateFile) {
     }
 }
 
-# --- Go server + Vite client terminals ---------------------------------------
+# --- Docker / server / client terminals --------------------------------------
 if ($state) {
-    Stop-Tree -processId $state.server -label "Go server"
-    Stop-Tree -processId $state.client -label "Vite client"
+    Stop-Tree -processId $state.docker -label "Docker terminal"
+    Stop-Tree -processId $state.server -label "Go server terminal"
+    Stop-Tree -processId $state.client -label "Vite client terminal"
 } else {
     Write-Host "No .dev-state.json found - falling back to port-based kill." -ForegroundColor Yellow
     $targets = @(
@@ -43,6 +44,16 @@ if ($state) {
         $owners = Get-NetTCPConnection -LocalPort $t.port -State Listen -ErrorAction SilentlyContinue |
                   Select-Object -ExpandProperty OwningProcess -Unique
         foreach ($owningPid in $owners) {
+            # Walk up to the parent powershell host so its window closes
+            # too — taskkill /T only kills descendants, not ancestors.
+            $parentPid = (Get-CimInstance Win32_Process -Filter "ProcessId = $owningPid" -ErrorAction SilentlyContinue).ParentProcessId
+            if ($parentPid) {
+                $parent = Get-Process -Id $parentPid -ErrorAction SilentlyContinue
+                if ($parent -and $parent.ProcessName -match '^(powershell|pwsh|WindowsTerminal|cmd)$') {
+                    Stop-Tree -processId $parentPid -label "$($t.label) host"
+                    continue
+                }
+            }
             Stop-Tree -processId $owningPid -label $t.label
         }
     }

@@ -3,26 +3,8 @@ package assembly
 import (
 	"bytes"
 	"encoding/json"
-	"os"
 	"testing"
-
-	"github.com/gkgkgkgk/ThereExists/server/internal/factory"
-	"github.com/gkgkgkgk/ThereExists/server/internal/factory/flight"
 )
-
-// TestMain wires the flight dispatcher to the factory's manufacturer
-// picker — main.go does this in production, but tests don't run main.
-func TestMain(m *testing.M) {
-	flight.SetManufacturerPicker(factory.PickManufacturer)
-	flight.SetCivTechTierLookup(func(id string) (int, bool) {
-		c, ok := factory.Civilizations[id]
-		if !ok {
-			return 0, false
-		}
-		return c.TechTier, true
-	})
-	os.Exit(m.Run())
-}
 
 // TestGenerateRandomShip_Determinism — same seed → bit-equal JSON.
 // UUIDs make struct-equality fragile (every engine gets a fresh ID), so
@@ -30,11 +12,11 @@ func TestMain(m *testing.M) {
 // after stripping the per-instance "id" fields.
 func TestGenerateRandomShip_Determinism(t *testing.T) {
 	for seed := int64(0); seed < 20; seed++ {
-		a, err := GenerateRandomShip(seed)
+		a, err := GenerateRandomShip(seed, nil)
 		if err != nil {
 			t.Fatalf("seed %d: %v", seed, err)
 		}
-		b, err := GenerateRandomShip(seed)
+		b, err := GenerateRandomShip(seed, nil)
 		if err != nil {
 			t.Fatalf("seed %d: %v", seed, err)
 		}
@@ -51,7 +33,7 @@ func TestGenerateRandomShip_Determinism(t *testing.T) {
 // TestGenerateRandomShip_JSONShape — Medium and Far serialise as
 // explicit JSON null so the frontend contract stays stable.
 func TestGenerateRandomShip_JSONShape(t *testing.T) {
-	l, err := GenerateRandomShip(42)
+	l, err := GenerateRandomShip(42, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

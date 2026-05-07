@@ -31,6 +31,10 @@ type RelativisticDriveArchetype struct {
 	// 0 is treated as 1.0. See LiquidChemicalArchetype.Rarity.
 	Rarity float64
 
+	// ThrustIspBias positions the archetype on the thrust↔Isp axis in
+	// [-1, 1]. See LiquidChemicalArchetype.ThrustIspBias.
+	ThrustIspBias float64
+
 	HealthInitRange [2]float64
 
 	// TopSpeedFractionC is the coordinate-frame top speed as a fraction
@@ -100,9 +104,10 @@ func (a RelativisticDriveArchetype) Validate() error {
 	return errors.Join(errs...)
 }
 
-// registerRelativisticArchetype mirrors registerLiquidArchetype:
+// RegisterRelativisticArchetype mirrors RegisterLiquidArchetype:
 // structural validation panics; mixture resolution warn-and-skips.
-func registerRelativisticArchetype(a RelativisticDriveArchetype) {
+// Called from factory/content/archetypes_far.go at init().
+func RegisterRelativisticArchetype(a RelativisticDriveArchetype) {
 	if err := a.Validate(); err != nil {
 		panic(fmt.Sprintf("flight: Far archetype %q failed validation: %v", a.Name, err))
 	}
@@ -122,29 +127,25 @@ func registerRelativisticArchetype(a RelativisticDriveArchetype) {
 	a.AllowedMixtures = resolved
 
 	registeredRelativisticArchetypes = append(registeredRelativisticArchetypes, a)
-	registerFull(a.FlightSlot, a.Name, func(manufacturerID string, rng *rand.Rand) (FlightSystem, error) {
-		return GenerateRelativisticDrive(a, factory.GenContext{
-			ManufacturerID: manufacturerID,
-			Rng:            rng,
-		})
-	}, a.TechTier, a.Rarity)
+	Register(RegisterOpts{
+		Slot: a.FlightSlot,
+		Name: a.Name,
+		Generator: func(civ *CivBias, rng *rand.Rand) (FlightSystem, error) {
+			return GenerateRelativisticDrive(a, civ, rng)
+		},
+		MinTechTier:   a.TechTier,
+		Rarity:        a.Rarity,
+		ThrustIspBias: a.ThrustIspBias,
+	})
 }
 
 // ──────────────────────────── Generator ────────────────────────────────
 
-func GenerateRelativisticDrive(a RelativisticDriveArchetype, ctx factory.GenContext) (*RelativisticDrive, error) {
-	rng := ctx.Rng
+func GenerateRelativisticDrive(a RelativisticDriveArchetype, civ *CivBias, rng *rand.Rand) (*RelativisticDrive, error) {
 	if rng == nil {
-		return nil, fmt.Errorf("GenerateRelativisticDrive: ctx.Rng is nil")
+		return nil, fmt.Errorf("GenerateRelativisticDrive: rng is nil")
 	}
-	mfg, ok := factory.Manufacturers[ctx.ManufacturerID]
-	if !ok {
-		return nil, fmt.Errorf("GenerateRelativisticDrive: unknown manufacturer %q", ctx.ManufacturerID)
-	}
-	civ, ok := factory.Civilizations[mfg.CivilizationID]
-	if !ok {
-		return nil, fmt.Errorf("GenerateRelativisticDrive: unknown civilization %q for manufacturer %q", mfg.CivilizationID, mfg.ID)
-	}
+	mfgName, mfgPrefix, tier := manufacturerStamp(civ)
 
 	d := &RelativisticDrive{
 		FlightSlot:        a.FlightSlot,
@@ -154,19 +155,19 @@ func GenerateRelativisticDrive(a RelativisticDriveArchetype, ctx factory.GenCont
 	}
 	d.ID = uuid.New()
 	d.ArchetypeName = a.Name
-	d.ManufacturerID = mfg.ID
-	d.SerialNumber = mfg.NamingConvention(rng, a.Name)
+	d.ManufacturerName = mfgName
+	d.SerialNumber = factory.PartSerial(mfgPrefix, a.Name, rng)
 	d.Name = d.SerialNumber
 
 	// A Far drive is one coherent reactor — single unit, single health.
 	d.Count = 1
-	d.Health = []float64{rollHealth(a.HealthInitRange, civ.TechTier, rng)}
+	d.Health = []float64{rollHealth(a.HealthInitRange, tier, civ, rng)}
 
 	d.IspVacuumSec = factory.LogUniform(a.IspVacuumRange[0], a.IspVacuumRange[1], rng)
 	d.ThrustN = factory.LogUniform(a.ThrustNRange[0], a.ThrustNRange[1], rng)
 	d.OperatingPowerW = factory.LogUniform(a.OperatingPowerWRange[0], a.OperatingPowerWRange[1], rng)
 
-	d.Mixture = a.AllowedMixtures[rng.Intn(len(a.AllowedMixtures))]
+	d.Mixture = pickMixture(a.AllowedMixtures, civ, rng)
 
 	return d, nil
 }

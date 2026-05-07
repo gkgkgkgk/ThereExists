@@ -56,6 +56,9 @@ func (p PhaseOfMatter) String() string {
 	}
 }
 
+// Resource is a tangible substance (raw or hardware-shaped) that the
+// metabolic loop tracks. Resource *values* live in factory/content/
+// — this file only defines the type and the categorisation enums.
 type Resource struct {
 	DisplayName       string
 	Category          ResourceCategory
@@ -71,59 +74,4 @@ type Resource struct {
 type ResourceInput struct {
 	Resource            *Resource
 	QuantityPerUnitFuel float64
-}
-
-// Wild precursors — volatiles harvested from comets, asteroids, and
-// icy moons. QuantityPerUnitFuel in Mixture.Precursors is in the
-// same units (kg-ish per kg of finished propellant).
-var H2O_ICE = &Resource{
-	DisplayName:       "Water Ice",
-	Category:          WildPrecursor,
-	Phase:             Solid,
-	Commonality:       1,
-	TypicalSourceHint: "Cometary ice, outer-system moons, shadowed craters.",
-}
-
-var CH4_ICE = &Resource{
-	DisplayName:       "Methane Ice",
-	Category:          WildPrecursor,
-	Phase:             Solid,
-	Commonality:       2,
-	TypicalSourceHint: "Outer-system bodies; Titan-class moons; cold comet cores.",
-}
-
-var NH3_ICE = &Resource{
-	DisplayName:       "Ammonia Ice",
-	Category:          WildPrecursor,
-	Phase:             Solid,
-	Commonality:       3,
-	TypicalSourceHint: "Cryovolcanic moons; outer-belt cometary inclusions.",
-}
-
-var N2_ICE = &Resource{
-	DisplayName:       "Nitrogen Ice",
-	Category:          WildPrecursor,
-	Phase:             Solid,
-	Commonality:       3,
-	TypicalSourceHint: "Cold outer-system bodies; Pluto-class surfaces.",
-}
-
-// Ignition hardware. SPARK is a consumable chemical starter;
-// SILVER is a catalyst bed (wears rather than is consumed, but
-// category-wise it's still a Catalyst — IgnitionConfig treats both
-// the same and QuantityPerStart carries the wear-vs-consume amount).
-var SPARK_RESOURCE = &Resource{
-	DisplayName:       "Chemical Starter Cartridge",
-	Category:          IgnitionComponent,
-	Phase:             Solid,
-	Commonality:       2,
-	TypicalSourceHint: "Standard-issue igniter stock; manufactured, not harvested.",
-}
-
-var SILVER = &Resource{
-	DisplayName:       "Silver Catalyst Bed",
-	Category:          Catalyst,
-	Phase:             Solid,
-	Commonality:       3,
-	TypicalSourceHint: "Refined silver; salvaged from asteroid-belt processing or pre-authored hardware stock.",
 }

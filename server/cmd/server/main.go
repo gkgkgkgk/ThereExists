@@ -8,9 +8,10 @@ import (
 
 	_ "github.com/gkgkgkgk/ThereExists/server/api"
 	"github.com/gkgkgkgk/ThereExists/server/internal/db"
-	"github.com/gkgkgkgk/ThereExists/server/internal/factory"
-	"github.com/gkgkgkgk/ThereExists/server/internal/factory/flight"
+	_ "github.com/gkgkgkgk/ThereExists/server/internal/factory/content"
 	"github.com/gkgkgkgk/ThereExists/server/internal/handlers"
+	"github.com/gkgkgkgk/ThereExists/server/internal/llm"
+	"github.com/joho/godotenv"
 	"github.com/rs/cors"
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 )
@@ -21,6 +22,17 @@ import (
 // @BasePath        /
 
 func main() {
+	// Load .env from the repo root (one level up from the server dir
+	// when running `go run ./cmd/server`). Silent on missing file —
+	// production uses real env vars, not a committed .env. Existing env
+	// vars take precedence over .env contents (godotenv.Load default).
+	for _, path := range []string{".env", "../.env"} {
+		if err := godotenv.Load(path); err == nil {
+			log.Printf("loaded env from %s", path)
+			break
+		}
+	}
+
 	database, err := db.Connect(os.Getenv("DATABASE_URL"))
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
@@ -31,23 +43,16 @@ func main() {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
 
-	// Wire the factory's manufacturer picker into the flight dispatcher.
-	// Done here (not in factory/init) to keep the factory → flight edge
-	// one-way and avoid an import cycle.
-	flight.SetManufacturerPicker(factory.PickManufacturer)
-	flight.SetCivTechTierLookup(func(id string) (int, bool) {
-		c, ok := factory.Civilizations[id]
-		if !ok {
-			return 0, false
-		}
-		return c.TechTier, true
-	})
+	// LLM client is optional — if OPENAI_API_KEY is missing, the civ
+	// endpoint 503s but the rest of the server still boots.
+	llmClient, err := llm.NewOpenAIClient()
+	if err != nil {
+		log.Printf("llm: %v; /api/civilizations/generate will return 503", err)
+		llmClient = nil
+	}
 
-	ph := handlers.NewPlayerHandler(database)
-	sh := handlers.NewShipHandler(database)
-
+	sh := handlers.NewShipHandler(database, llmClient)
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/player", ph.GetPlayer)
 	mux.HandleFunc("POST /api/ships/generate", sh.Generate)
 	mux.HandleFunc("GET /api/health", healthCheck)
 

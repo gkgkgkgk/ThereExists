@@ -6,8 +6,23 @@ definitions:
         type: string
       seed:
         type: integer
-      ship_id:
+      ship:
+        $ref: '#/definitions/handlers.ShipResponse'
+    type: object
+  handlers.ShipResponse:
+    properties:
+      created_at:
         type: string
+      id:
+        type: string
+      loadout:
+        type: object
+      state:
+        type: object
+      status:
+        type: string
+      transform:
+        type: object
     type: object
 info:
   contact: {}
@@ -15,6 +30,38 @@ info:
   title: ThereExists API
   version: "1.0"
 paths:
+  /api/civilizations/generate:
+    post:
+      description: Rolls a fresh civilization via the factory LLM pipeline. Returns
+        the civ and the planet that seeded it. No persistence.
+      parameters:
+      - description: Seed override; defaults to time-based random
+        in: query
+        name: seed
+        type: integer
+      - description: LLM model override (e.g. gpt-4o)
+        in: query
+        name: model
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: '{ civilization, planet }'
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: generation error
+          schema:
+            type: string
+        "503":
+          description: OPENAI_API_KEY not configured
+          schema:
+            type: string
+      summary: Generate a civilization
+      tags:
+      - civilizations
   /api/health:
     get:
       description: Returns "ok" if the server is running.

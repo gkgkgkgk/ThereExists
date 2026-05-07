@@ -3,106 +3,91 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
+	"github.com/gkgkgkgk/ThereExists/server/internal/factory"
 	"github.com/gkgkgkgk/ThereExists/server/internal/factory/assembly"
+	"github.com/gkgkgkgk/ThereExists/server/internal/llm"
 )
 
+// ShipHandler now produces civ + ship bundles statelessly. The DB
+// connection is retained on the struct so the future start-game
+// endpoint (which writes to `runs`) can grow alongside this handler
+// without rewiring main.go; nothing in /generate touches it.
 type ShipHandler struct {
-	db *sql.DB
+	db  *sql.DB
+	llm llm.Client
 }
 
-func NewShipHandler(db *sql.DB) *ShipHandler {
-	return &ShipHandler{db: db}
+func NewShipHandler(db *sql.DB, llmClient llm.Client) *ShipHandler {
+	return &ShipHandler{db: db, llm: llmClient}
 }
 
-// Generate rolls a ship via the factory and persists the result onto the
-// caller's active ships row. Manual-only debug endpoint — not wired into
-// the UI in Phase 3. Determinism: the seed defaults to the player's
-// seed, so repeated calls return the same ship. Pass ?seed=<int> to
-// override (useful for inspecting variety without creating new players).
+// GenerateResponse is the wire shape returned by POST /api/ships/generate.
+// civilization, planet, and ship are emitted as the factory's native
+// JSON. The caller is responsible for handing this to a future
+// start-game endpoint if they want to persist a run.
+type GenerateResponse struct {
+	Seed         int64                  `json:"seed"`
+	Civilization *factory.Civilization  `json:"civilization"`
+	Planet       *factory.Planet        `json:"planet"`
+	Ship         *assembly.ShipLoadout  `json:"ship"`
+}
+
+// Generate rolls a fresh civilization (LLM-driven) and a civ-aware ship
+// in one shot, returning the bundle as JSON. No DB writes — persistence
+// will be the job of the future start-game endpoint.
 //
-// @Summary      Generate a ship loadout
-// @Description  Rolls a ship via the factory and persists it onto the player's active ship. Defaults to the player's seed; pass ?seed= to override.
+// @Summary      Generate a civilization + ship bundle
+// @Description  Runs the civ pipeline (LLM, 3 round trips) then rolls a civ-aware ship via the factory. Returns both as JSON. No persistence — caller must POST to start-game (future endpoint) to durably create a run.
 // @Tags         ships
 // @Produce      json
-// @Param        player_id  query     string  true   "Player UUID"
-// @Param        seed       query     int     false  "Optional seed override"
-// @Success      200        {object}  map[string]interface{}  "Ship loadout JSON"
-// @Failure      400        {string}  string  "missing player_id query param"
-// @Failure      404        {string}  string  "no active ship for player"
-// @Failure      500        {string}  string  "internal server error"
+// @Param        seed  query     int     false  "Seed override; defaults to time-based random. The same seed yields the same anchor planet but the LLM-driven civ steps remain non-deterministic."
+// @Success      200   {object}  GenerateResponse
+// @Failure      400   {string}  string  "invalid seed"
+// @Failure      500   {string}  string  "generation error"
+// @Failure      503   {string}  string  "OPENAI_API_KEY not configured"
 // @Router       /api/ships/generate [post]
 func (h *ShipHandler) Generate(w http.ResponseWriter, r *http.Request) {
-	playerID := r.URL.Query().Get("player_id")
-	if playerID == "" {
-		http.Error(w, "missing player_id query param", http.StatusBadRequest)
+	if h.llm == nil {
+		http.Error(w, "OPENAI_API_KEY not configured", http.StatusServiceUnavailable)
 		return
 	}
 
-	var shipID string
-	if err := h.db.QueryRowContext(r.Context(),
-		`SELECT id FROM ships WHERE player_id = $1 AND status = 'active' LIMIT 1`,
-		playerID,
-	).Scan(&shipID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "no active ship for player", http.StatusNotFound)
+	seed := time.Now().UnixNano()
+	if s := r.URL.Query().Get("seed"); s != "" {
+		parsed, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			http.Error(w, "invalid seed", http.StatusBadRequest)
 			return
 		}
-		log.Printf("ship lookup for player %s: %v", playerID, err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
+		seed = parsed
 	}
 
-	seed, err := h.resolveSeed(r, playerID)
+	civ, planet, err := factory.GenerateCivilization(r.Context(), h.llm, seed)
 	if err != nil {
-		log.Printf("resolve seed for player %s: %v", playerID, err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		log.Printf("civgen seed=%d: %v", seed, err)
+		http.Error(w, "generation error", http.StatusInternalServerError)
 		return
 	}
 
-	loadout, err := assembly.GenerateRandomShip(seed)
+	loadout, err := assembly.GenerateRandomShip(seed, civ)
 	if err != nil {
-		log.Printf("generate ship for player %s: %v", playerID, err)
-		http.Error(w, "factory error", http.StatusInternalServerError)
-		return
-	}
-
-	loadoutJSON, err := json.Marshal(loadout)
-	if err != nil {
-		log.Printf("marshal loadout: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	if _, err := h.db.ExecContext(r.Context(),
-		`UPDATE ships SET loadout = $1::jsonb, factory_version = $2 WHERE id = $3`,
-		string(loadoutJSON), assembly.FactoryVersion, shipID,
-	); err != nil {
-		log.Printf("persist loadout for ship %s: %v", shipID, err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		log.Printf("ship gen seed=%d civ=%s: %v", seed, civ.ID, err)
+		http.Error(w, "generation error", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(loadoutJSON)
-}
-
-// resolveSeed returns the seed to use for generation: ?seed override if
-// present and parseable, else the player's persistent seed.
-func (h *ShipHandler) resolveSeed(r *http.Request, playerID string) (int64, error) {
-	if s := r.URL.Query().Get("seed"); s != "" {
-		return strconv.ParseInt(s, 10, 64)
+	if err := json.NewEncoder(w).Encode(GenerateResponse{
+		Seed:         seed,
+		Civilization: civ,
+		Planet:       planet,
+		Ship:         loadout,
+	}); err != nil {
+		log.Printf("encode generate response: %v", err)
 	}
-	var seed int32
-	if err := h.db.QueryRowContext(r.Context(),
-		`SELECT seed FROM players WHERE id = $1`,
-		playerID,
-	).Scan(&seed); err != nil {
-		return 0, err
-	}
-	return int64(seed), nil
 }

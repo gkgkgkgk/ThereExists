@@ -22,31 +22,34 @@ func Connect(databaseURL string) (*sql.DB, error) {
 	return database, nil
 }
 
+// Migrate brings the schema to the current target shape. The pre-Phase-5.1
+// players/ships/civilizations layout is dropped — generation is stateless
+// (POST /api/ships/generate writes nothing) and the future start-game
+// endpoint will write to the single `runs` table created here. Each row
+// is one civ + ship + game-state bundle keyed by run id, with the player
+// id attached and an `active` flag for the player's current run.
+//
+// Statements run in order; CASCADE on the drops handles any leftover FKs
+// from older deployments. `runs` is reserved for the start-game endpoint
+// — no code writes to it in this revision.
 func Migrate(database *sql.DB) error {
 	stmts := []string{
-		`CREATE TABLE IF NOT EXISTS players (
-			id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			seed         INTEGER NOT NULL,
-			created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		`DROP TABLE IF EXISTS ships CASCADE`,
+		`DROP TABLE IF EXISTS civilizations CASCADE`,
+		`DROP TABLE IF EXISTS players CASCADE`,
+		`CREATE TABLE IF NOT EXISTS runs (
+			id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			player_id       UUID NOT NULL,
+			civilization    JSONB NOT NULL,
+			ship            JSONB NOT NULL,
+			state           JSONB NOT NULL DEFAULT '{}'::jsonb,
+			active          BOOLEAN NOT NULL DEFAULT TRUE,
+			factory_version TEXT NOT NULL,
+			created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
-		`CREATE TABLE IF NOT EXISTS ships (
-			id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			player_id  UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
-			loadout    JSONB NOT NULL DEFAULT '{}'::jsonb,
-			state      JSONB NOT NULL DEFAULT '{}'::jsonb,
-			transform  JSONB NOT NULL DEFAULT '{}'::jsonb,
-			status     TEXT NOT NULL DEFAULT 'active'
-				CHECK (status IN ('active','derelict','destroyed')),
-			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		)`,
-		`ALTER TABLE ships ADD COLUMN IF NOT EXISTS factory_version TEXT`,
-		`ALTER TABLE players
-			ADD COLUMN IF NOT EXISTS active_ship_id UUID
-				REFERENCES ships(id) ON DELETE SET NULL`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS one_active_ship_per_player
-			ON ships(player_id) WHERE status = 'active'`,
-		`CREATE INDEX IF NOT EXISTS ships_player_id_idx ON ships(player_id)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS one_active_run_per_player
+			ON runs(player_id) WHERE active`,
+		`CREATE INDEX IF NOT EXISTS runs_player_id_idx ON runs(player_id)`,
 	}
 	for _, s := range stmts {
 		if _, err := database.ExecContext(context.Background(), s); err != nil {
