@@ -164,7 +164,7 @@ func GenerateRelativisticDrive(a RelativisticDriveArchetype, civ *CivBias, ctx f
 
 	// A Far drive is one coherent reactor — single unit, single health.
 	d.Count = 1
-	d.Health = []float64{rollHealth(a.HealthInitRange, mfgCiv.TechTier, rng)}
+	d.Health = []float64{rollHealth(a.HealthInitRange, mfgCiv.TechTier, civ, rng)}
 
 	d.IspVacuumSec = factory.LogUniform(a.IspVacuumRange[0], a.IspVacuumRange[1], rng)
 	d.ThrustN = factory.LogUniform(a.ThrustNRange[0], a.ThrustNRange[1], rng)

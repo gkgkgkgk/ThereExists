@@ -294,7 +294,7 @@ func GenerateLiquidChemicalEngine(a LiquidChemicalArchetype, civ *CivBias, ctx f
 	e.Count = a.CountRange[0] + rng.Intn(countSpan)
 	e.Health = make([]float64, e.Count)
 	for i := range e.Health {
-		e.Health[i] = rollHealth(a.HealthInitRange, mfgCiv.TechTier, rng)
+		e.Health[i] = rollHealth(a.HealthInitRange, mfgCiv.TechTier, civ, rng)
 	}
 
 	// ── Group 1 — ChamberPressureBar (performance driver) ─────────────
@@ -510,9 +510,14 @@ func mixtureIgnitionLabel(m *factory.Mixture) string {
 	}
 }
 
-// rollHealth samples from HealthInitRange, narrowed by TechTier on a 1–5
-// scale. Tier 1 uses the full range; Tier 5 uses only the top half.
-func rollHealth(hr [2]float64, tier int, rng *rand.Rand) float64 {
+// rollHealth samples from HealthInitRange, narrowed by TechTier on a
+// 1–5 scale (Tier 1 uses the full range; Tier 5 uses only the top
+// half), and further shifted by civ.RiskTolerance when civ is non-nil:
+// risk=0 → effectiveLo = hi (always tops out); risk=1 → no shift;
+// risk=0.5 → midpoint. The risk shift composes on top of tier
+// narrowing — the picker uses whichever lower bound is *higher*, so a
+// conservative civ at low TechTier still rolls a healthy part.
+func rollHealth(hr [2]float64, tier int, civ *CivBias, rng *rand.Rand) float64 {
 	if tier < 1 {
 		tier = 1
 	}
@@ -521,6 +526,16 @@ func rollHealth(hr [2]float64, tier int, rng *rand.Rand) float64 {
 	}
 	lo, hi := hr[0], hr[1]
 	span := hi - lo
-	narrowedLo := lo + float64(tier-1)/4.0*(span*0.5)
-	return factory.Uniform(narrowedLo, hi, rng)
+	tierLo := lo + float64(tier-1)/4.0*(span*0.5)
+	effectiveLo := tierLo
+	if civ != nil {
+		riskLo := lo + span*(1.0-civ.RiskTolerance)
+		if riskLo > effectiveLo {
+			effectiveLo = riskLo
+		}
+	}
+	if effectiveLo > hi {
+		effectiveLo = hi
+	}
+	return factory.Uniform(effectiveLo, hi, rng)
 }
