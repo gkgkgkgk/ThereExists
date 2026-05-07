@@ -64,12 +64,10 @@ func main() {
 		llmClient = nil
 	}
 
-	ph := handlers.NewPlayerHandler(database)
 	sh := handlers.NewShipHandler(database, llmClient)
 	ch := handlers.NewCivilizationHandler(llmClient)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/player", ph.GetPlayer)
 	mux.HandleFunc("POST /api/ships/generate", sh.Generate)
 	mux.HandleFunc("POST /api/civilizations/generate", ch.Generate)
 	mux.HandleFunc("GET /api/health", healthCheck)
