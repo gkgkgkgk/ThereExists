@@ -126,8 +126,8 @@ func registerRelativisticArchetype(a RelativisticDriveArchetype) {
 	a.AllowedMixtures = resolved
 
 	registeredRelativisticArchetypes = append(registeredRelativisticArchetypes, a)
-	registerFull(a.FlightSlot, a.Name, func(manufacturerID string, rng *rand.Rand) (FlightSystem, error) {
-		return GenerateRelativisticDrive(a, factory.GenContext{
+	registerFull(a.FlightSlot, a.Name, func(manufacturerID string, civ *CivBias, rng *rand.Rand) (FlightSystem, error) {
+		return GenerateRelativisticDrive(a, civ, factory.GenContext{
 			ManufacturerID: manufacturerID,
 			Rng:            rng,
 		})
@@ -136,7 +136,7 @@ func registerRelativisticArchetype(a RelativisticDriveArchetype) {
 
 // ──────────────────────────── Generator ────────────────────────────────
 
-func GenerateRelativisticDrive(a RelativisticDriveArchetype, ctx factory.GenContext) (*RelativisticDrive, error) {
+func GenerateRelativisticDrive(a RelativisticDriveArchetype, civ *CivBias, ctx factory.GenContext) (*RelativisticDrive, error) {
 	rng := ctx.Rng
 	if rng == nil {
 		return nil, fmt.Errorf("GenerateRelativisticDrive: ctx.Rng is nil")
@@ -145,7 +145,7 @@ func GenerateRelativisticDrive(a RelativisticDriveArchetype, ctx factory.GenCont
 	if !ok {
 		return nil, fmt.Errorf("GenerateRelativisticDrive: unknown manufacturer %q", ctx.ManufacturerID)
 	}
-	civ, ok := factory.Civilizations[mfg.CivilizationID]
+	mfgCiv, ok := factory.Civilizations[mfg.CivilizationID]
 	if !ok {
 		return nil, fmt.Errorf("GenerateRelativisticDrive: unknown civilization %q for manufacturer %q", mfg.CivilizationID, mfg.ID)
 	}
@@ -164,13 +164,13 @@ func GenerateRelativisticDrive(a RelativisticDriveArchetype, ctx factory.GenCont
 
 	// A Far drive is one coherent reactor — single unit, single health.
 	d.Count = 1
-	d.Health = []float64{rollHealth(a.HealthInitRange, civ.TechTier, rng)}
+	d.Health = []float64{rollHealth(a.HealthInitRange, mfgCiv.TechTier, rng)}
 
 	d.IspVacuumSec = factory.LogUniform(a.IspVacuumRange[0], a.IspVacuumRange[1], rng)
 	d.ThrustN = factory.LogUniform(a.ThrustNRange[0], a.ThrustNRange[1], rng)
 	d.OperatingPowerW = factory.LogUniform(a.OperatingPowerWRange[0], a.OperatingPowerWRange[1], rng)
 
-	d.Mixture = a.AllowedMixtures[rng.Intn(len(a.AllowedMixtures))]
+	d.Mixture = pickMixture(a.AllowedMixtures, civ, rng)
 
 	return d, nil
 }

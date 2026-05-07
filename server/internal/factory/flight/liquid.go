@@ -195,8 +195,8 @@ func registerLiquidArchetype(a LiquidChemicalArchetype) {
 	registerOpts(RegisterOpts{
 		Slot: a.FlightSlot,
 		Name: a.Name,
-		Generator: func(manufacturerID string, rng *rand.Rand) (FlightSystem, error) {
-			return GenerateLiquidChemicalEngine(a, factory.GenContext{
+		Generator: func(manufacturerID string, civ *CivBias, rng *rand.Rand) (FlightSystem, error) {
+			return GenerateLiquidChemicalEngine(a, civ, factory.GenContext{
 				ManufacturerID: manufacturerID,
 				Rng:            rng,
 			})
@@ -265,7 +265,7 @@ func (a LiquidChemicalArchetype) Validate() error {
 // GenerateLiquidChemicalEngine implements the Plan §2 generation DAG.
 // Each group's output conditions subsequent groups so no post-hoc
 // clamping is needed.
-func GenerateLiquidChemicalEngine(a LiquidChemicalArchetype, ctx factory.GenContext) (*LiquidChemicalEngine, error) {
+func GenerateLiquidChemicalEngine(a LiquidChemicalArchetype, civ *CivBias, ctx factory.GenContext) (*LiquidChemicalEngine, error) {
 	rng := ctx.Rng
 	if rng == nil {
 		return nil, fmt.Errorf("GenerateLiquidChemicalEngine: ctx.Rng is nil")
@@ -274,7 +274,7 @@ func GenerateLiquidChemicalEngine(a LiquidChemicalArchetype, ctx factory.GenCont
 	if !ok {
 		return nil, fmt.Errorf("GenerateLiquidChemicalEngine: unknown manufacturer %q", ctx.ManufacturerID)
 	}
-	civ, ok := factory.Civilizations[mfg.CivilizationID]
+	mfgCiv, ok := factory.Civilizations[mfg.CivilizationID]
 	if !ok {
 		return nil, fmt.Errorf("GenerateLiquidChemicalEngine: unknown civilization %q for manufacturer %q", mfg.CivilizationID, mfg.ID)
 	}
@@ -294,7 +294,7 @@ func GenerateLiquidChemicalEngine(a LiquidChemicalArchetype, ctx factory.GenCont
 	e.Count = a.CountRange[0] + rng.Intn(countSpan)
 	e.Health = make([]float64, e.Count)
 	for i := range e.Health {
-		e.Health[i] = rollHealth(a.HealthInitRange, civ.TechTier, rng)
+		e.Health[i] = rollHealth(a.HealthInitRange, mfgCiv.TechTier, rng)
 	}
 
 	// ── Group 1 — ChamberPressureBar (performance driver) ─────────────
@@ -362,7 +362,7 @@ func GenerateLiquidChemicalEngine(a LiquidChemicalArchetype, ctx factory.GenCont
 	e.OperatingPowerW = factory.Uniform(a.OperatingPowerWRange[0], a.OperatingPowerWRange[1], rng)
 
 	// ── Group 7 — Propellant + ignition ───────────────────────────────
-	e.Mixture = a.AllowedMixtures[rng.Intn(len(a.AllowedMixtures))]
+	e.Mixture = pickMixture(a.AllowedMixtures, civ, rng)
 	mix := e.Mixture
 	e.PropellantConfig = mix.Config
 	e.IgnitionMethod = deriveIgnition(mix, rng)
@@ -440,6 +440,74 @@ func deriveIgnition(mix *factory.Mixture, rng *rand.Rand) factory.IgnitionMethod
 		return factory.Spark
 	}
 	return factory.Pyrotechnic
+}
+
+// pickMixture is the civ-aware replacement for the prior uniform
+// mixture pick. With civ == nil it collapses to uniform sampling
+// (legacy behavior). With civ non-nil, per-mixture weights are:
+//
+//   - 1.0 baseline;
+//   - × 3.0 if PreferredMixtureIDs[m.ID] (Plan §5);
+//   - × (1.0 - AversionToCryogenics) if m.Cryogenic;
+//   - × 1.5 if PreferredIgnitionTypes[derivedIgnition.String()].
+//
+// Floor at 0.05 — higher than the archetype-weight floor because there
+// are fewer mixtures per archetype, so a near-zero weight is more
+// visible. The ignition derivation mirrors deriveIgnition's logic but
+// without consuming RNG state — Spark/Pyrotechnic both round-trip
+// through the boost as ".Spark" since either is a valid soft match for
+// a civ that prefers either.
+func pickMixture(allowed []*factory.Mixture, civ *CivBias, rng *rand.Rand) *factory.Mixture {
+	if len(allowed) == 0 {
+		return nil
+	}
+	if civ == nil {
+		return allowed[rng.Intn(len(allowed))]
+	}
+	weights := make([]float64, len(allowed))
+	total := 0.0
+	for i, m := range allowed {
+		w := 1.0
+		if civ.PreferredMixtureIDs[m.ID] {
+			w *= 3.0
+		}
+		if m.Cryogenic {
+			w *= 1.0 - civ.AversionToCryogenics
+		}
+		if civ.PreferredIgnitionTypes[mixtureIgnitionLabel(m)] {
+			w *= 1.5
+		}
+		if w < 0.05 {
+			w = 0.05
+		}
+		weights[i] = w
+		total += w
+	}
+	r := rng.Float64() * total
+	acc := 0.0
+	for i, m := range allowed {
+		acc += weights[i]
+		if r < acc {
+			return m
+		}
+	}
+	return allowed[len(allowed)-1]
+}
+
+// mixtureIgnitionLabel returns the IgnitionMethod string the mixture
+// will resolve to in deriveIgnition. Spark/Pyrotechnic split is
+// rng-driven inside the generator; for boosting purposes we project
+// both onto "spark" so a civ that prefers either soft-matches. Pure
+// label projection — no RNG consumed.
+func mixtureIgnitionLabel(m *factory.Mixture) string {
+	switch {
+	case m.Hypergolic:
+		return factory.Hypergolic.String()
+	case m.Config == factory.Monopropellant:
+		return factory.Catalytic.String()
+	default:
+		return factory.Spark.String()
+	}
 }
 
 // rollHealth samples from HealthInitRange, narrowed by TechTier on a 1–5

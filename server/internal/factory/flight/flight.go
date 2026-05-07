@@ -60,8 +60,10 @@ var ErrSlotEmpty = errors.New("flight: no archetype registered for slot")
 
 // archetypeGenerator produces a concrete FlightSystem for a chosen
 // manufacturer. The dispatcher owns archetype + manufacturer selection,
-// then hands both to this function.
-type archetypeGenerator func(manufacturerID string, rng *rand.Rand) (FlightSystem, error)
+// then hands both — plus the optional CivBias — to this function. civ
+// is nil when the caller doesn't supply one (legacy/test path); in
+// that case the generator falls back to civ-blind defaults.
+type archetypeGenerator func(manufacturerID string, civ *CivBias, rng *rand.Rand) (FlightSystem, error)
 
 type archetypeEntry struct {
 	archetypeName string
@@ -265,7 +267,7 @@ func GenerateForSlot(slot FlightSlot, civilizationID, previousManufacturerID str
 	if err != nil {
 		return nil, "", fmt.Errorf("pick manufacturer: %w", err)
 	}
-	sys, err := arch.generate(mfgID, rng)
+	sys, err := arch.generate(mfgID, civ, rng)
 	if err != nil {
 		return nil, "", err
 	}

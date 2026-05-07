@@ -17,7 +17,7 @@ func rollOne(t *testing.T, seed int64) *LiquidChemicalEngine {
 	if err != nil {
 		t.Fatalf("PickManufacturer: %v", err)
 	}
-	e, err := GenerateLiquidChemicalEngine(RCAStandard, factory.GenContext{
+	e, err := GenerateLiquidChemicalEngine(RCAStandard, nil, factory.GenContext{
 		ManufacturerID: mfg,
 		Rng:            rng,
 	})
