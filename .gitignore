@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 # Dependencies
 node_modules/
 
@@ -26,3 +27,38 @@ Thumbs.db
 
 # dev.ps1 / stop.ps1 runtime state
 .dev-state.json
+=======
+# Dependencies
+node_modules/
+
+# Build outputs
+client/dist/
+server/main
+server/thereexists
+
+# Environment files (never commit secrets)
+.env
+.env.local
+client/.env.local
+
+# Go
+*.exe
+*.test
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+.claude/
+
+# dev/stop scripts runtime state, logs, and project-local Postgres data
+.dev-state.json
+.dev-server.log
+.dev-client.log
+.dev-postgres.log
+.dev-pgweb.log
+.pgdata/
+>>>>>>> Stashed changes
