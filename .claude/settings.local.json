@@ -10,13 +10,11 @@
       "Bash(go vet *)",
       "Bash(git commit -m ' *)",
       "Bash(git commit *)",
-<<<<<<< Updated upstream
       "Bash(swag init *)",
       "Bash(go get *)",
       "Bash(TEST_DATABASE_URL='postgres://postgres:password@localhost:5433/thereexists' go test ./internal/factory/... -run \"TestSaveLoadRoundTrip|TestLoadCivNotFound\" -count=1 -v)",
       "Bash(TEST_DATABASE_URL='postgres://postgres:password@localhost:5433/thereexists' go test ./internal/factory -run \"TestSaveLoadRoundTrip|TestLoadCivNotFound\" -count=1 -v)",
-      "Bash(git restore *)"
-=======
+      "Bash(git restore *)",
       "Bash(chmod +x dev.sh stop.sh)",
       "Bash(command -v lsof)",
       "Bash(bash -n dev.sh)",
@@ -28,7 +26,6 @@
       "Bash(timeout 540 nix develop --command bash -c 'echo \"--- inside dev shell ---\"; go version; node --version; psql --version; pg_ctl --version; echo \"--- ok ---\"')",
       "Bash(nix develop --command bash -c ' *)",
       "Bash(nix develop *)"
->>>>>>> Stashed changes
     ]
   }
 }
