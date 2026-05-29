@@ -1,6 +1,9 @@
 package factory
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Enums shared across multiple system categories live here. Category-local
 // enums (e.g. FlightSlot) live alongside the category itself.
@@ -60,6 +63,15 @@ func (i IgnitionMethod) String() string {
 
 func (i IgnitionMethod) MarshalText() ([]byte, error) { return []byte(i.String()), nil }
 
+func (i *IgnitionMethod) UnmarshalText(text []byte) error {
+	v, ok := ParseIgnitionMethod(string(text))
+	if !ok {
+		return fmt.Errorf("unknown ignition method: %q", string(text))
+	}
+	*i = v
+	return nil
+}
+
 // CoolingMethod describes how an engine rejects chamber heat. Each method
 // has real teeth (Plan §2 "Cooling methods — each has real teeth"):
 // Ablative depletes mass; Radiative caps throttle; Film penalises Isp;
@@ -88,3 +100,40 @@ func (c CoolingMethod) String() string {
 }
 
 func (c CoolingMethod) MarshalText() ([]byte, error) { return []byte(c.String()), nil }
+
+func (c *CoolingMethod) UnmarshalText(text []byte) error {
+	v, ok := ParseCoolingMethod(string(text))
+	if !ok {
+		return fmt.Errorf("unknown cooling method: %q", string(text))
+	}
+	*c = v
+	return nil
+}
+
+// AllCoolingMethods enumerates every CoolingMethod value. Used by civgen
+// to build the constrained-choice option menu and by ParseCoolingMethod.
+var AllCoolingMethods = []CoolingMethod{Ablative, Regenerative, Radiative, Film}
+
+// AllIgnitionMethods enumerates every IgnitionMethod value.
+var AllIgnitionMethods = []IgnitionMethod{Spark, Pyrotechnic, Hypergolic, Catalytic}
+
+// ParseCoolingMethod maps the String() output back to the enum. Case-
+// insensitive to tolerate LLM casing drift.
+func ParseCoolingMethod(s string) (CoolingMethod, bool) {
+	for _, c := range AllCoolingMethods {
+		if strings.EqualFold(c.String(), s) {
+			return c, true
+		}
+	}
+	return 0, false
+}
+
+// ParseIgnitionMethod maps the String() output back to the enum.
+func ParseIgnitionMethod(s string) (IgnitionMethod, bool) {
+	for _, i := range AllIgnitionMethods {
+		if strings.EqualFold(i.String(), s) {
+			return i, true
+		}
+	}
+	return 0, false
+}

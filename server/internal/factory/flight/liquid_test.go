@@ -1,4 +1,4 @@
-package flight
+package flight_test
 
 import (
 	"math/rand"
@@ -6,21 +6,21 @@ import (
 	"testing"
 
 	"github.com/gkgkgkgk/ThereExists/server/internal/factory"
+	"github.com/gkgkgkgk/ThereExists/server/internal/factory/content"
+	"github.com/gkgkgkgk/ThereExists/server/internal/factory/flight"
 )
 
-// rollOne is a small helper — pick a manufacturer for GenericCivilization
-// and roll an engine from RCAStandard with the given seed.
-func rollOne(t *testing.T, seed int64) *LiquidChemicalEngine {
+// External test package — the flight tests reference content's
+// archetype catalog (content.RCAStandard etc.), so the tests live in
+// package flight_test to avoid the content → flight → test cycle that
+// an internal test package would create.
+
+// rollOne rolls an engine from RCAStandard with the given seed under
+// the nil-civ baseline (tier 3, generic shipwright stamp).
+func rollOne(t *testing.T, seed int64) *flight.LiquidChemicalEngine {
 	t.Helper()
 	rng := rand.New(rand.NewSource(seed))
-	mfg, err := factory.PickManufacturer(factory.GenericCivilizationID, "RCAStandard", "", rng)
-	if err != nil {
-		t.Fatalf("PickManufacturer: %v", err)
-	}
-	e, err := GenerateLiquidChemicalEngine(RCAStandard, factory.GenContext{
-		ManufacturerID: mfg,
-		Rng:            rng,
-	})
+	e, err := flight.GenerateLiquidChemicalEngine(content.RCAStandard, nil, rng)
 	if err != nil {
 		t.Fatalf("GenerateLiquidChemicalEngine: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestDeterminism(t *testing.T) {
 	for seed := int64(0); seed < 20; seed++ {
 		a := rollOne(t, seed)
 		b := rollOne(t, seed)
-		a.ID, b.ID = [16]byte{}, [16]byte{} // zero UUIDs — they're per-instance
+		a.ID, b.ID = [16]byte{}, [16]byte{}
 		if !reflect.DeepEqual(a, b) {
 			t.Fatalf("seed %d: engines differ across runs", seed)
 		}
@@ -42,7 +42,7 @@ func TestDeterminism(t *testing.T) {
 }
 
 // TestDAGInvariants — sweep many seeds and assert every generated engine
-// respects the DAG's structural guarantees (Plan §7).
+// respects the DAG's structural guarantees.
 func TestDAGInvariants(t *testing.T) {
 	for seed := int64(0); seed < 1000; seed++ {
 		e := rollOne(t, seed)
@@ -53,9 +53,9 @@ func TestDAGInvariants(t *testing.T) {
 		if e.CanThrottle != (e.MaxThrottle > e.MinThrottle) {
 			t.Fatalf("seed %d: CanThrottle=%v but min=%v max=%v", seed, e.CanThrottle, e.MinThrottle, e.MaxThrottle)
 		}
-		if (e.GimbalRangeDegrees == 0) != (e.DryMassKg < RCAStandard.GimbalEligibleMassKg) {
+		if (e.GimbalRangeDegrees == 0) != (e.DryMassKg < content.RCAStandard.GimbalEligibleMassKg) {
 			t.Fatalf("seed %d: gimbal gating violated — mass=%v eligible=%v gimbal=%v",
-				seed, e.DryMassKg, RCAStandard.GimbalEligibleMassKg, e.GimbalRangeDegrees)
+				seed, e.DryMassKg, content.RCAStandard.GimbalEligibleMassKg, e.GimbalRangeDegrees)
 		}
 		if (e.InitialAblatorMassKg > 0) != (e.CoolingMethod == factory.Ablative) {
 			t.Fatalf("seed %d: ablator mass (%v) vs cooling (%v) mismatch", seed, e.InitialAblatorMassKg, e.CoolingMethod)
@@ -90,13 +90,14 @@ func TestReachability(t *testing.T) {
 	// filter on every roll. Film is unconditional. So all three are
 	// reachable.
 	expectedCooling := map[factory.CoolingMethod]bool{
-		factory.Ablative:   false,
-		factory.Radiative:  false,
-		factory.Film:       false,
+		factory.Ablative:  false,
+		factory.Radiative: false,
+		factory.Film:      false,
 	}
 	// RCAStandard.AllowedMixtures = {MMH_NTO, Hydrazine}.
 	// MMH_NTO is hypergolic → Hypergolic. Hydrazine is monopropellant
-	// → Catalytic. Spark/Pyrotechnic are not reachable here.
+	// (default Config=0) → Catalytic. Spark/Pyrotechnic are not
+	// reachable here.
 	expectedIgnition := map[factory.IgnitionMethod]bool{
 		factory.Hypergolic: false,
 		factory.Catalytic:  false,
@@ -127,20 +128,6 @@ func TestReachability(t *testing.T) {
 	}
 }
 
-// TestValidateAllRegisteredArchetypes — every archetype registered at
-// init() must pass validation. Today only RCAStandard exists; cost
-// is nothing and this catches future misconfiguration.
-func TestValidateAllRegisteredArchetypes(t *testing.T) {
-	if len(registeredArchetypes) == 0 {
-		t.Fatal("no archetypes registered — init() did not run or registry is empty")
-	}
-	for _, a := range registeredArchetypes {
-		if err := a.Validate(); err != nil {
-			t.Errorf("archetype %q failed validation: %v", a.Name, err)
-		}
-	}
-}
-
 // TestIspAt_Monotonic — Isp should decrease monotonically as ambient
 // pressure rises from vacuum up to (and past) the reference pressure.
 func TestIspAt_Monotonic(t *testing.T) {
@@ -156,14 +143,14 @@ func TestIspAt_Monotonic(t *testing.T) {
 		}
 		prev = cur
 	}
-	if e.IspAt(1_000_000) != 0 { // flow separation clamp
+	if e.IspAt(1_000_000) != 0 {
 		t.Fatal("IspAt far past reference should floor at 0")
 	}
 }
 
 // TestHasRestartsRemaining — sentinel semantics for MaxRestarts == -1.
 func TestHasRestartsRemaining(t *testing.T) {
-	e := &LiquidChemicalEngine{}
+	e := &flight.LiquidChemicalEngine{}
 	e.MaxRestarts = -1
 	e.RestartsUsed = 1_000_000
 	if !e.HasRestartsRemaining() {

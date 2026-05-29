@@ -6,7 +6,7 @@ $root = $PSScriptRoot
 
 # ── 1. Docker (Postgres) ──────────────────────────────────────────────────────
 Write-Host "Starting Docker (Postgres)..." -ForegroundColor Cyan
-Start-Process powershell -ArgumentList "-NoExit", "-Command",
+$dockerProc = Start-Process powershell -PassThru -ArgumentList "-NoExit", "-Command",
     "Set-Location '$root'; docker compose up"
 
 # ── 2. Wait for Postgres to be healthy ───────────────────────────────────────
@@ -33,13 +33,25 @@ if (-not $ready) {
 
 # ── 3. Go server ─────────────────────────────────────────────────────────────
 Write-Host "Starting Go server..." -ForegroundColor Cyan
-Start-Process powershell -ArgumentList "-NoExit", "-Command",
+$serverProc = Start-Process powershell -PassThru -ArgumentList "-NoExit", "-Command",
     "Set-Location '$root\server'; `$env:DATABASE_URL='postgres://postgres:password@localhost:5433/thereexists'; `$env:PORT='8080'; `$env:ALLOWED_ORIGINS='http://localhost:5173'; go run ./cmd/..."
 
 # ── 4. Vite client ───────────────────────────────────────────────────────────
 Write-Host "Starting Vite client..." -ForegroundColor Cyan
-Start-Process powershell -ArgumentList "-NoExit", "-Command",
+$clientProc = Start-Process powershell -PassThru -ArgumentList "-NoExit", "-Command",
     "Set-Location '$root\client'; npm run dev"
+
+# ── 5. State file ────────────────────────────────────────────────────────────
+# Record the parent powershell host PIDs so stop.ps1 can tree-kill them
+# (which closes the terminal windows, not just the child go/node/docker
+# processes). Written last so a partially-failed launch doesn't leave a
+# stale file behind.
+$state = @{
+    docker = $dockerProc.Id
+    server = $serverProc.Id
+    client = $clientProc.Id
+}
+$state | ConvertTo-Json | Set-Content -Path (Join-Path $root ".dev-state.json") -Encoding UTF8
 
 Write-Host ""
 Write-Host "All services launched:" -ForegroundColor Green

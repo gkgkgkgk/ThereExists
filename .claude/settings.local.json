@@ -9,7 +9,23 @@
       "Bash(go test *)",
       "Bash(go vet *)",
       "Bash(git commit -m ' *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(swag init *)",
+      "Bash(go get *)",
+      "Bash(TEST_DATABASE_URL='postgres://postgres:password@localhost:5433/thereexists' go test ./internal/factory/... -run \"TestSaveLoadRoundTrip|TestLoadCivNotFound\" -count=1 -v)",
+      "Bash(TEST_DATABASE_URL='postgres://postgres:password@localhost:5433/thereexists' go test ./internal/factory -run \"TestSaveLoadRoundTrip|TestLoadCivNotFound\" -count=1 -v)",
+      "Bash(git restore *)",
+      "Bash(chmod +x dev.sh stop.sh)",
+      "Bash(command -v lsof)",
+      "Bash(bash -n dev.sh)",
+      "Bash(bash -n stop.sh)",
+      "Bash(nix flake *)",
+      "Read(//nix/store/**)",
+      "Bash(timeout 300 nix eval --raw '.#devShells.x86_64-linux.default.buildInputs' --apply 'inputs: builtins.concatStringsSep \"\\\\n\" \\(map \\(p: p.name\\) inputs\\)')",
+      "Bash(nix eval *)",
+      "Bash(timeout 540 nix develop --command bash -c 'echo \"--- inside dev shell ---\"; go version; node --version; psql --version; pg_ctl --version; echo \"--- ok ---\"')",
+      "Bash(nix develop --command bash -c ' *)",
+      "Bash(nix develop *)"
     ]
   }
 }

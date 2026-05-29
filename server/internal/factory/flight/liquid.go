@@ -34,6 +34,13 @@ type LiquidChemicalArchetype struct {
 	// options drop to 0.2–0.4 so they show up, but not routinely.
 	Rarity float64
 
+	// ThrustIspBias positions the archetype on the thrust↔Isp axis in
+	// [-1, 1]. -1 = punchy (high T/W, low Isp); +1 = efficient (high
+	// Isp, lower T/W); 0 = balanced. Read by the civ-aware archetype
+	// weighting (commit 5) — civs with a matching ThrustVsIspPreference
+	// roll this archetype more often.
+	ThrustIspBias float64
+
 	// Group 0 — identity
 	HealthInitRange [2]float64
 	// CountRange gives the number of identical physical units in the
@@ -153,14 +160,15 @@ func (e *LiquidChemicalEngine) Tick(dt, throttle float64) {
 // by registerLiquidArchetype() calls in liquid_archetypes.go.
 var registeredArchetypes []LiquidChemicalArchetype
 
-// registerLiquidArchetype enforces structural validation (panics on
-// failure) and then filters AllowedMixtureIDs to the subset that
-// actually resolves in factory.Mixtures. Unresolved mixtures are logged
-// as warnings — this lets Phase 4 infrastructure land before the
-// full mixture catalog is authored. An archetype whose mixture list
-// becomes empty after filtering is skipped (logged) rather than
-// registered, so the generator never picks an unusable archetype.
-func registerLiquidArchetype(a LiquidChemicalArchetype) {
+// RegisterLiquidArchetype enforces structural validation (panics on
+// failure) and then filters AllowedMixtures to the subset that
+// actually resolves (has Precursors or is Synthetic). Unresolved
+// mixtures are logged as warnings — this lets infrastructure land
+// before content. An archetype whose mixture list becomes empty after
+// filtering is skipped (logged) rather than registered, so the
+// generator never picks an unusable archetype. Called from
+// factory/content/archetypes_liquid.go at init().
+func RegisterLiquidArchetype(a LiquidChemicalArchetype) {
 	if err := a.Validate(); err != nil {
 		panic(fmt.Sprintf("flight: archetype %q failed validation: %v", a.Name, err))
 	}
@@ -181,12 +189,21 @@ func registerLiquidArchetype(a LiquidChemicalArchetype) {
 	a.AllowedMixtures = resolved
 
 	registeredArchetypes = append(registeredArchetypes, a)
-	registerFull(a.FlightSlot, a.Name, func(manufacturerID string, rng *rand.Rand) (FlightSystem, error) {
-		return GenerateLiquidChemicalEngine(a, factory.GenContext{
-			ManufacturerID: manufacturerID,
-			Rng:            rng,
-		})
-	}, 0, a.Rarity)
+	coolingNames := make([]string, 0, len(a.AllowedCoolingMethods))
+	for _, c := range a.AllowedCoolingMethods {
+		coolingNames = append(coolingNames, c.String())
+	}
+	Register(RegisterOpts{
+		Slot: a.FlightSlot,
+		Name: a.Name,
+		Generator: func(civ *CivBias, rng *rand.Rand) (FlightSystem, error) {
+			return GenerateLiquidChemicalEngine(a, civ, rng)
+		},
+		MinTechTier:        0,
+		Rarity:             a.Rarity,
+		ThrustIspBias:      a.ThrustIspBias,
+		CoolingMethodNames: coolingNames,
+	})
 }
 
 // Validate checks structural invariants on a single archetype. Plan §2
@@ -246,27 +263,19 @@ func (a LiquidChemicalArchetype) Validate() error {
 // GenerateLiquidChemicalEngine implements the Plan §2 generation DAG.
 // Each group's output conditions subsequent groups so no post-hoc
 // clamping is needed.
-func GenerateLiquidChemicalEngine(a LiquidChemicalArchetype, ctx factory.GenContext) (*LiquidChemicalEngine, error) {
-	rng := ctx.Rng
+func GenerateLiquidChemicalEngine(a LiquidChemicalArchetype, civ *CivBias, rng *rand.Rand) (*LiquidChemicalEngine, error) {
 	if rng == nil {
-		return nil, fmt.Errorf("GenerateLiquidChemicalEngine: ctx.Rng is nil")
+		return nil, fmt.Errorf("GenerateLiquidChemicalEngine: rng is nil")
 	}
-	mfg, ok := factory.Manufacturers[ctx.ManufacturerID]
-	if !ok {
-		return nil, fmt.Errorf("GenerateLiquidChemicalEngine: unknown manufacturer %q", ctx.ManufacturerID)
-	}
-	civ, ok := factory.Civilizations[mfg.CivilizationID]
-	if !ok {
-		return nil, fmt.Errorf("GenerateLiquidChemicalEngine: unknown civilization %q for manufacturer %q", mfg.CivilizationID, mfg.ID)
-	}
+	mfgName, mfgPrefix, tier := manufacturerStamp(civ)
 
 	e := &LiquidChemicalEngine{FlightSlot: a.FlightSlot}
 
 	// ── Group 0 — SystemBase identity ─────────────────────────────────
 	e.ID = uuid.New()
 	e.ArchetypeName = a.Name
-	e.ManufacturerID = mfg.ID
-	e.SerialNumber = mfg.NamingConvention(rng, a.Name)
+	e.ManufacturerName = mfgName
+	e.SerialNumber = factory.PartSerial(mfgPrefix, a.Name, rng)
 	e.Name = e.SerialNumber
 
 	// Redundancy: roll a unit count, then roll per-unit initial health so
@@ -275,7 +284,7 @@ func GenerateLiquidChemicalEngine(a LiquidChemicalArchetype, ctx factory.GenCont
 	e.Count = a.CountRange[0] + rng.Intn(countSpan)
 	e.Health = make([]float64, e.Count)
 	for i := range e.Health {
-		e.Health[i] = rollHealth(a.HealthInitRange, civ.TechTier, rng)
+		e.Health[i] = rollHealth(a.HealthInitRange, tier, civ, rng)
 	}
 
 	// ── Group 1 — ChamberPressureBar (performance driver) ─────────────
@@ -343,7 +352,7 @@ func GenerateLiquidChemicalEngine(a LiquidChemicalArchetype, ctx factory.GenCont
 	e.OperatingPowerW = factory.Uniform(a.OperatingPowerWRange[0], a.OperatingPowerWRange[1], rng)
 
 	// ── Group 7 — Propellant + ignition ───────────────────────────────
-	e.Mixture = a.AllowedMixtures[rng.Intn(len(a.AllowedMixtures))]
+	e.Mixture = pickMixture(a.AllowedMixtures, civ, rng)
 	mix := e.Mixture
 	e.PropellantConfig = mix.Config
 	e.IgnitionMethod = deriveIgnition(mix, rng)
@@ -423,9 +432,82 @@ func deriveIgnition(mix *factory.Mixture, rng *rand.Rand) factory.IgnitionMethod
 	return factory.Pyrotechnic
 }
 
-// rollHealth samples from HealthInitRange, narrowed by TechTier on a 1–5
-// scale. Tier 1 uses the full range; Tier 5 uses only the top half.
-func rollHealth(hr [2]float64, tier int, rng *rand.Rand) float64 {
+// pickMixture is the civ-aware replacement for the prior uniform
+// mixture pick. With civ == nil it collapses to uniform sampling
+// (legacy behavior). With civ non-nil, per-mixture weights are:
+//
+//   - 1.0 baseline;
+//   - × 3.0 if PreferredMixtureIDs[m.ID] (Plan §5);
+//   - × (1.0 - AversionToCryogenics) if m.Cryogenic;
+//   - × 1.5 if PreferredIgnitionTypes[derivedIgnition.String()].
+//
+// Floor at 0.05 — higher than the archetype-weight floor because there
+// are fewer mixtures per archetype, so a near-zero weight is more
+// visible. The ignition derivation mirrors deriveIgnition's logic but
+// without consuming RNG state — Spark/Pyrotechnic both round-trip
+// through the boost as ".Spark" since either is a valid soft match for
+// a civ that prefers either.
+func pickMixture(allowed []*factory.Mixture, civ *CivBias, rng *rand.Rand) *factory.Mixture {
+	if len(allowed) == 0 {
+		return nil
+	}
+	if civ == nil {
+		return allowed[rng.Intn(len(allowed))]
+	}
+	weights := make([]float64, len(allowed))
+	total := 0.0
+	for i, m := range allowed {
+		w := 1.0
+		if civ.PreferredMixtureIDs[m.ID] {
+			w *= 3.0
+		}
+		if m.Cryogenic {
+			w *= 1.0 - civ.AversionToCryogenics
+		}
+		if civ.PreferredIgnitionTypes[mixtureIgnitionLabel(m)] {
+			w *= 1.5
+		}
+		if w < 0.05 {
+			w = 0.05
+		}
+		weights[i] = w
+		total += w
+	}
+	r := rng.Float64() * total
+	acc := 0.0
+	for i, m := range allowed {
+		acc += weights[i]
+		if r < acc {
+			return m
+		}
+	}
+	return allowed[len(allowed)-1]
+}
+
+// mixtureIgnitionLabel returns the IgnitionMethod string the mixture
+// will resolve to in deriveIgnition. Spark/Pyrotechnic split is
+// rng-driven inside the generator; for boosting purposes we project
+// both onto "spark" so a civ that prefers either soft-matches. Pure
+// label projection — no RNG consumed.
+func mixtureIgnitionLabel(m *factory.Mixture) string {
+	switch {
+	case m.Hypergolic:
+		return factory.Hypergolic.String()
+	case m.Config == factory.Monopropellant:
+		return factory.Catalytic.String()
+	default:
+		return factory.Spark.String()
+	}
+}
+
+// rollHealth samples from HealthInitRange, narrowed by TechTier on a
+// 1–5 scale (Tier 1 uses the full range; Tier 5 uses only the top
+// half), and further shifted by civ.RiskTolerance when civ is non-nil:
+// risk=0 → effectiveLo = hi (always tops out); risk=1 → no shift;
+// risk=0.5 → midpoint. The risk shift composes on top of tier
+// narrowing — the picker uses whichever lower bound is *higher*, so a
+// conservative civ at low TechTier still rolls a healthy part.
+func rollHealth(hr [2]float64, tier int, civ *CivBias, rng *rand.Rand) float64 {
 	if tier < 1 {
 		tier = 1
 	}
@@ -434,6 +516,16 @@ func rollHealth(hr [2]float64, tier int, rng *rand.Rand) float64 {
 	}
 	lo, hi := hr[0], hr[1]
 	span := hi - lo
-	narrowedLo := lo + float64(tier-1)/4.0*(span*0.5)
-	return factory.Uniform(narrowedLo, hi, rng)
+	tierLo := lo + float64(tier-1)/4.0*(span*0.5)
+	effectiveLo := tierLo
+	if civ != nil {
+		riskLo := lo + span*(1.0-civ.RiskTolerance)
+		if riskLo > effectiveLo {
+			effectiveLo = riskLo
+		}
+	}
+	if effectiveLo > hi {
+		effectiveLo = hi
+	}
+	return factory.Uniform(effectiveLo, hi, rng)
 }

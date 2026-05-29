@@ -1,63 +1,60 @@
-package flight
+package content
 
 import (
 	"github.com/gkgkgkgk/ThereExists/server/internal/factory"
+	"github.com/gkgkgkgk/ThereExists/server/internal/factory/flight"
 )
 
-// Liquid-chemical archetype *values* live here. Add a new archetype by
-// declaring another var below and registering it in the init() block.
-// Struct definitions, validation, and the generator live in liquid.go.
+// Liquid-chemical archetype values. Add a new archetype: declare a var
+// below and register it in init(). Type definition + generator + the
+// civ-aware health/mixture rolls live in factory/flight/liquid.go.
 
-// RCSLiquidChemical — Phase 3's one end-to-end archetype. Values match
-// Plan §2 "Example archetype (v1)". Close-range reaction-control engines:
-// on/off throttle, unlimited restarts, low chamber pressure.
-// liquid_archetypes.go
-
-var RCAStandard = LiquidChemicalArchetype{
+var RCAStandard = flight.LiquidChemicalArchetype{
 	Name:                            "Reaction Control Assembly (RCA)",
 	Description:                     "Standard-issue reaction control thrusters. Optimized for attitude control and precision station-keeping via high-frequency pulsing.",
-	FlightSlot:                      Short,
+	FlightSlot:                      flight.Short,
 	Rarity:                          1.0,
+	ThrustIspBias:                   -0.2,
 	HealthInitRange:                 [2]float64{0.85, 1.0},
-	CountRange:                      [2]int{4, 16}, // RCS clusters are many small thrusters
+	CountRange:                      [2]int{4, 16},
 	ChamberPressureRange:            [2]float64{5, 25},
 	IspVacuumRange:                  [2]float64{220, 290},
 	IspAtRefPressureRange:           [2]float64{180, 240},
 	ReferencePressurePa:             101325,
 	ThrustVacuumRange:               [2]float64{50, 1_000},
 	DryMassRange:                    [2]float64{1, 50},
-	GimbalEligibleMassKg:            9999, // Never gimbals
+	GimbalEligibleMassKg:            9999,
 	GimbalRangeRange:                [2]float64{0, 0},
 	IgnitionPowerWRange:             [2]float64{0, 20},
 	OperatingPowerWRange:            [2]float64{5, 50},
-	AllowedMixtures:                 []*factory.Mixture{&factory.MMH_NTO, &factory.Hydrazine},
+	AllowedMixtures:                 []*factory.Mixture{&MMH_NTO, &Hydrazine},
 	AllowedCoolingMethods:           []factory.CoolingMethod{factory.Ablative, factory.Radiative, factory.Film},
 	MaxContinuousBurnRange:          [2]float64{1, 300},
-	MaxRestarts:                     -1, // Unlimited pulses
+	MaxRestarts:                     -1,
 	MinThrottleRange:                [2]float64{1.0, 1.0},
 	MaxThrottleRange:                [2]float64{1.0, 1.0},
 	RestartTemperatureCeilingKRange: [2]float64{400, 600},
 	AblatorMassKgRange:              [2]float64{0.1, 2.0},
 }
 
-var TCAShort = LiquidChemicalArchetype{
+var TCAShort = flight.LiquidChemicalArchetype{
 	Name:                   "Thermal Catalytic Assembly (TCA)",
 	Description:            "A low-complexity monopropellant thruster. Uses a catalyst bed to decompose propellant into high-temperature steam. Extremely reliable for attitude control and translation, though highly inefficient compared to bipropellant systems.",
-	FlightSlot:             Short,
+	FlightSlot:             flight.Short,
 	Rarity:                 0.8,
 	HealthInitRange:        [2]float64{0.95, 1.0},
-	CountRange:             [2]int{8, 20}, // reliable monoprop cluster
+	CountRange:             [2]int{8, 20},
 	ChamberPressureRange:   [2]float64{5, 15},
 	IspVacuumRange:         [2]float64{140, 190},
 	IspAtRefPressureRange:  [2]float64{100, 150},
 	ReferencePressurePa:    101325,
 	ThrustVacuumRange:      [2]float64{20, 800},
 	DryMassRange:           [2]float64{5, 30},
-	GimbalEligibleMassKg:   9999, // monoprop cluster never gimbals
+	GimbalEligibleMassKg:   9999,
 	GimbalRangeRange:       [2]float64{0, 0},
 	IgnitionPowerWRange:    [2]float64{0, 10},
 	OperatingPowerWRange:   [2]float64{2, 15},
-	AllowedMixtures:        []*factory.Mixture{&factory.Hydrazine}, // "Hydrazine_Mono" renamed
+	AllowedMixtures:        []*factory.Mixture{&Hydrazine},
 	AllowedCoolingMethods:  []factory.CoolingMethod{factory.Radiative},
 	MaxRestarts:            -1,
 	MaxContinuousBurnRange: [2]float64{500, 2000},
@@ -65,11 +62,12 @@ var TCAShort = LiquidChemicalArchetype{
 	MaxThrottleRange:       [2]float64{1.0, 1.0},
 }
 
-var PDDPhotolytic = LiquidChemicalArchetype{
+var PDDPhotolytic = flight.LiquidChemicalArchetype{
 	Name:                   "Photolytic Decomposition Drive (PDD)",
 	Description:            "Solid-state manifold using UV-laser dissociation. Eliminates combustion instability but introduces significant electrical overhead during operation.",
-	FlightSlot:             Short,
+	FlightSlot:             flight.Short,
 	Rarity:                 0.25,
+	ThrustIspBias:          0.4,
 	HealthInitRange:        [2]float64{0.75, 0.90},
 	CountRange:             [2]int{2, 6},
 	ChamberPressureRange:   [2]float64{15, 60},
@@ -82,7 +80,7 @@ var PDDPhotolytic = LiquidChemicalArchetype{
 	GimbalRangeRange:       [2]float64{0, 0},
 	IgnitionPowerWRange:    [2]float64{500, 1500},
 	OperatingPowerWRange:   [2]float64{400, 1200},
-	AllowedMixtures:        []*factory.Mixture{&factory.GlassHydrazine}, // unauthored — warn-and-skip at registration
+	AllowedMixtures:        []*factory.Mixture{&GlassHydrazine},
 	AllowedCoolingMethods:  []factory.CoolingMethod{factory.Radiative},
 	MaxRestarts:            -1,
 	MaxContinuousBurnRange: [2]float64{100, 800},
@@ -90,11 +88,12 @@ var PDDPhotolytic = LiquidChemicalArchetype{
 	MaxThrottleRange:       [2]float64{1.0, 1.0},
 }
 
-var HPFAService = LiquidChemicalArchetype{
+var HPFAService = flight.LiquidChemicalArchetype{
 	Name:                   "Hypergolic Pressure-Fed Assembly (HPFA)",
 	Description:            "Reliable mid-thrust propulsion utilizing storable bipropellants. Pressure-fed architecture eliminates turbopump complexity for long-term dormancy survival.",
-	FlightSlot:             Medium,
+	FlightSlot:             flight.Medium,
 	Rarity:                 1.0,
+	ThrustIspBias:          -0.3,
 	HealthInitRange:        [2]float64{0.80, 0.95},
 	CountRange:             [2]int{1, 2},
 	ChamberPressureRange:   [2]float64{10, 50},
@@ -105,9 +104,9 @@ var HPFAService = LiquidChemicalArchetype{
 	DryMassRange:           [2]float64{100, 500},
 	GimbalEligibleMassKg:   150,
 	GimbalRangeRange:       [2]float64{5, 15},
-	IgnitionPowerWRange:    [2]float64{0, 0}, // Hypergolic
+	IgnitionPowerWRange:    [2]float64{0, 0},
 	OperatingPowerWRange:   [2]float64{20, 120},
-	AllowedMixtures:        []*factory.Mixture{&factory.MMH_NTO, &factory.Aerozine50_NTO},
+	AllowedMixtures:        []*factory.Mixture{&MMH_NTO, &Aerozine50_NTO, &Silane_Ox},
 	AllowedCoolingMethods:  []factory.CoolingMethod{factory.Ablative, factory.Radiative},
 	AblatorMassKgRange:     [2]float64{5, 50},
 	MaxContinuousBurnRange: [2]float64{300, 1000},
@@ -116,11 +115,12 @@ var HPFAService = LiquidChemicalArchetype{
 	MaxThrottleRange:       [2]float64{1.0, 1.0},
 }
 
-var SCTAMainline = LiquidChemicalArchetype{
+var SCTAMainline = flight.LiquidChemicalArchetype{
 	Name:                   "Staged Combustion Turbopump Assembly (SCTA)",
 	Description:            "High-performance mainline engine. Utilizes a staged-combustion cycle for maximum specific impulse. High mechanical complexity increases maintenance requirements.",
-	FlightSlot:             Medium,
+	FlightSlot:             flight.Medium,
 	Rarity:                 0.6,
+	ThrustIspBias:          0.5,
 	HealthInitRange:        [2]float64{0.50, 0.75},
 	CountRange:             [2]int{1, 4},
 	ChamberPressureRange:   [2]float64{100, 250},
@@ -133,7 +133,7 @@ var SCTAMainline = LiquidChemicalArchetype{
 	GimbalRangeRange:       [2]float64{5, 12},
 	IgnitionPowerWRange:    [2]float64{100, 500},
 	OperatingPowerWRange:   [2]float64{50, 200},
-	AllowedMixtures:        []*factory.Mixture{&factory.LOX_LH2, &factory.Methalox}, // "Hydrolox" renamed → LOX_LH2
+	AllowedMixtures:        []*factory.Mixture{&LOX_LH2, &Methalox, &Silane_Ox},
 	AllowedCoolingMethods:  []factory.CoolingMethod{factory.Film},
 	MaxContinuousBurnRange: [2]float64{100, 400},
 	MaxRestarts:            3,
@@ -141,11 +141,12 @@ var SCTAMainline = LiquidChemicalArchetype{
 	MaxThrottleRange:       [2]float64{1.0, 1.0},
 }
 
-var RDEShockwave = LiquidChemicalArchetype{
+var RDEShockwave = flight.LiquidChemicalArchetype{
 	Name:                   "Rotating Detonation Manifold (RDE)",
 	Description:            "High-efficiency supersonic detonation ring. Superior thrust-to-weight ratio. Extreme acoustic vibration reduces airframe integrity over long durations.",
-	FlightSlot:             Medium,
+	FlightSlot:             flight.Medium,
 	Rarity:                 0.35,
+	ThrustIspBias:          -0.7,
 	HealthInitRange:        [2]float64{0.40, 0.65},
 	CountRange:             [2]int{1, 2},
 	ChamberPressureRange:   [2]float64{150, 400},
@@ -158,20 +159,21 @@ var RDEShockwave = LiquidChemicalArchetype{
 	GimbalRangeRange:       [2]float64{3, 10},
 	IgnitionPowerWRange:    [2]float64{200, 800},
 	OperatingPowerWRange:   [2]float64{40, 150},
-	AllowedMixtures:        []*factory.Mixture{&factory.Methane_Fluorine, &factory.Hydrogen_Fluorine}, // unauthored — warn-and-skip
+	AllowedMixtures:        []*factory.Mixture{&Methane_Fluorine, &Hydrogen_Fluorine, &Silane_Ox},
 	AllowedCoolingMethods:  []factory.CoolingMethod{factory.Film, factory.Ablative},
 	AblatorMassKgRange:     [2]float64{5, 40},
-	MaxContinuousBurnRange: [2]float64{30, 150}, // short — vibration-limited
+	MaxContinuousBurnRange: [2]float64{30, 150},
 	MaxRestarts:            10,
 	MinThrottleRange:       [2]float64{0.6, 0.8},
 	MaxThrottleRange:       [2]float64{1.0, 1.0},
 }
 
-var SABRE = LiquidChemicalArchetype{
+var SABRE = flight.LiquidChemicalArchetype{
 	Name:                            "Synthetically Actuated Biogenic Reaction Engine (SABRE)",
 	Description:                     "A hybrid manifold utilizing a synthetic neural-link to actuate the metabolic exhaust of an engineered extremophile colony. Provides high-efficiency delta-v with a minimal thermal signature. Requires metabolic substrate (CHON) and precise thermal regulation to prevent colony atrophy.",
-	FlightSlot:                      Medium,
+	FlightSlot:                      flight.Medium,
 	Rarity:                          0.15,
+	ThrustIspBias:                   0.2,
 	HealthInitRange:                 [2]float64{0.88, 0.98},
 	CountRange:                      [2]int{1, 2},
 	ChamberPressureRange:            [2]float64{8, 30},
@@ -184,7 +186,7 @@ var SABRE = LiquidChemicalArchetype{
 	GimbalRangeRange:                [2]float64{2, 6},
 	IgnitionPowerWRange:             [2]float64{10, 50},
 	OperatingPowerWRange:            [2]float64{100, 300},
-	AllowedMixtures:                 []*factory.Mixture{&factory.Polyphosphate_Concentrate, &factory.CH3OH_Saline_Substrate}, // unauthored — warn-and-skip
+	AllowedMixtures:                 []*factory.Mixture{&Polyphosphate_Concentrate, &CH3OH_Saline_Substrate},
 	AllowedCoolingMethods:           []factory.CoolingMethod{factory.Radiative},
 	MaxRestarts:                     -1,
 	MaxContinuousBurnRange:          [2]float64{500, 3000},
@@ -194,16 +196,11 @@ var SABRE = LiquidChemicalArchetype{
 }
 
 func init() {
-	// registerLiquidArchetype validates structurally (panics on failure)
-	// and then filters AllowedMixtures to the authored subset. Archetypes
-	// whose mixtures are all unauthored are logged and skipped — that's
-	// the mechanism that lets Phase 4 infra land before the user fills
-	// in the full mixture catalog.
-	registerLiquidArchetype(RCAStandard)
-	registerLiquidArchetype(TCAShort)
-	registerLiquidArchetype(PDDPhotolytic)
-	registerLiquidArchetype(HPFAService)
-	registerLiquidArchetype(SCTAMainline)
-	registerLiquidArchetype(RDEShockwave)
-	registerLiquidArchetype(SABRE)
+	flight.RegisterLiquidArchetype(RCAStandard)
+	flight.RegisterLiquidArchetype(TCAShort)
+	flight.RegisterLiquidArchetype(PDDPhotolytic)
+	flight.RegisterLiquidArchetype(HPFAService)
+	flight.RegisterLiquidArchetype(SCTAMainline)
+	flight.RegisterLiquidArchetype(RDEShockwave)
+	flight.RegisterLiquidArchetype(SABRE)
 }
